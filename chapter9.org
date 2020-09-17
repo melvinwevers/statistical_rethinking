@@ -1,0 +1,157 @@
+#+AUTHOR:Melvin Wevers
+#+TITLE: Chapter 9. Big Entropy and the Generalized Linear Model
+#+PROPERTY: header-args :session :results value :cache no :exports both
+
+
+Bet on the distribution with the biggest entropy
+1. This distribution is the widest and least informative distribution. The resulting
+   distribution embodies the least information while remaining true to the information
+   we've provided.
+2. Nature tends to produce empirical distributions that have high entropy. 
+3. The approach has solved difficult problems in the past. 
+
+*Generalized Linear Models* and the principle of *Maximum Entropy*
+
+GLMS need not use Gaussian likelihoods. 
+The principle of maximum entropy helps us choose likelihood functions, by providing a way
+to use stated assumptions about constraints on the outcome variavble to choose the
+likelihood function that is the most conservative distribution compatible with the known
+constrains. 
+
+* 9.1. Maximum Entropy
+
+Information entropy = $ -\sum_{i} p_{i} * log * p_{i} $
+
+*Maximum Entropy Principle*
+The distribution that can happen the most ways is also the distribution with the biggest
+information entropy. The distribution with the biggest entropy is the most conservative
+distribution that obeys its constraints.
+
+#+BEGIN_SRC R
+p <- list()
+p$A <- c(0,0,10,0,0)
+p$B <- c(0,1,8,1,0)
+p$C <- c(0,2,6,2,0)
+p$D <- c(1,2,4,2,1)
+p$E <- c(2,2,2,2,2)
+
+p_norm <- lapply(p, function(q) q/sum(q))
+
+( H <- sapply( p_norm , function(q) -sum(ifelse(q==0,0,q*log(q))) ) )
+
+#+END_SRC
+
+#+RESULTS:
+|                 0 |
+| 0.639031859650177 |
+| 0.950270539233235 |
+|  1.47080847632211 |
+|   1.6094379124341 |
+
+#+BEGIN_SRC R
+ways <- c(1,90,1260,37800,113400)
+logwayspp <- log(ways)/10
+
+#+END_SRC
+
+#+RESULTS:
+|                 0 |
+| 0.449980967033026 |
+| 0.713886699994552 |
+|  1.05400643816077 |
+|  1.16386766702758 |
+
+Information entropy is a way of counting how many unique arrangements correspond to a
+distribution.
+
+The distribution that can happen the greatest number of ways is the most plausible
+distribution. *Maximum Entropy Distribution*
+
+** 9.1. Gaussian
+Since entropy is maximized when probability is spread out as evently as possible, maximum
+entropy also seeks the distribution that is most even, while still obeyed its
+constraints. 
+
+If all we are assuming about a distribution is that it has a finite variance, then the
+Gaussian distribution represents the most conservative probability distribution to assign
+to these measurements. OFten we know more. In these cases, the principle of maximum
+entropy leads to distributions other than the Gaussian. 
+
+** 9.1.2. Binomial
+Binomial distribution > if only two things can happen and there's a constant chance $p$ of
+each across $n$ trails.
+
+As entropy declines the probability distributions become progressively less even.
+
+1. Binomial distribution has maximum entropy nature. When only two un-ordered outcomes are
+   possible and the expected numbers of each type of events are assumed to be constant,
+   then the distribution that is most consistent with these constraints is the binomial
+   distribution. This spreads probability out as evenly and conservatively as possible.
+2. Usually we do not kow the expected value, but wish to estimate it. 
+3. Likelihoods through maximizing entropy same as counting (forking paths)
+
+Map constraints on an outcome to a probability distribution > not necessary the best
+solution, but no other distribution more conservatively reflects your assumptions.
+
+* 9.2. Generalized Linear Models
+
+Generalize the linear regression strategy---replace a parameter describing the shape of
+the likelihood with a linear model---to probability distributions other than the
+Gaussian. 
+
+Two changes from the familiar Gaussian model.
+1. The likelihood is binomial instead of Gaussian. 
+2. A link function. Helps to stop the linear model from falling below zero or exceeding
+   one.
+
+** 9.2.1. Meet the family
+the most common distributions used in statistical modeling are members of a family knwon
+as the *exponential family*. Every member of this family is a maximum entropy
+distribution, for some set of constraints. 
+
+- Guassian
+- Binomial > count distribution
+- Exponential > distribution of distance and duration > displacement from some point of
+  reference, either in time or space. Core of survival and event history analysis (not
+  covered in book!)
+- Gamma > also constrained to be zero or positive. Distribution of distance and
+  duration. This can have a peak above zero, other than exponential. Common in survival
+  and event history analysis, as sometimes in context where a continuous measurement is
+  constrained to be positive. 
+- Poisson > count distribution like the binomial. Used for counts that never get close to
+  any theoretical maximum. 
+
+** 9.2.2. Linking linear models to distributions.
+To build a regression model from any of the exponential family distributions is just a
+matter of attaching one or more linear models to one or more of the parameters that
+describe the distribution's shape. 
+
+1. *logit link* maps a parameter that is defined as a probability mass, and therefore
+ constrained to lie between zero and one, onto a linear model that can take on any real
+ value. common when working with binomial GLMs. 
+
+*Logistic / inverse-logit* since it inverts the logit transform
+
+No regression coefficient, such as \beta, from a GLM ever produces a constant change on
+the outcome scale. 
+
+2. *log link* maps a parameter that is defined over only positive real values onto a
+   linear model. Using a log link for a linear model implies an exponential scaling of the
+   outcome with the predictor variable. 
+
+** 9.2.3. Absolute and relative differences
+a big beta-coefficient may not correspond to a big effect on the outcome.
+
+** 9.2.4. GLMs and information criteria
+IC still work as long as of the models you compare they use the same outcome distribution
+type. 
+
+* 9.3. Maximum Entropy Priors
+The principle of maximum entropy helps us to make modeling choices. Maximum entropy
+nominates the least informative distribution consistent with the constraints on the
+outcome variable. (likelihoods)
+
+Also helpful when choosing priors. When we have background information maxium entropy
+provides a way to generate a prior that embodies the background information, while
+assuming as little else as possible. 
+

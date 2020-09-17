@@ -1,0 +1,14 @@
+#+AUTHOR: Melvin Wevers
+#+TITLE: 15. Horoscopes
+#+PROPERTY: header-args :session :results value :cache no :exports both
+
+“Science is a population-level process of variation and selective retention. 
+It does not operate on individual hypotheses, but rather on populations of hypotheses. It comprises a mix of dynamics that may, over long periods of time, reveal the clockwork of nature.” 
+
+
+"A good theory specifies precise predictions that provide precise tests, and more than one
+model is usually necessary"
+
+"A persistent problem is design with low signal-to-noise ratios. Poor signal will not mean
+no findings, just unreliable ones"
+

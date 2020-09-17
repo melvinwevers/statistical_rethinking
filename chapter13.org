@@ -1,0 +1,1719 @@
+#+AUTHOR: Melvin Wevers
+#+TITLE: 13. Adventures in Covariance
+#+PROPERTY: header-args :session :results value :cache no :exports both
+
+Essence of the general *varying effects* strategy: any batch of parameters with
+/exchangeable/ index values can and probably should be pooled. 
+
+Model both the population of intercepts and the population of slopes. 
+
+Ordinary varying effects work only with discrete, unordered categories. 
+
+* 13.1 Varying slopes by construction
+
+Rather than having two independent Gaussian distributions of intercepts and of slopes, we
+can do better by assigning a two-dimensional Gaussian distribution to both the intercepts
+(First dimension) and the slopes (second dimension). 
+
+** 13.1.1. Simulate the population
+
+#+BEGIN_SRC R
+
+library(rethinking)
+a <- 3.5 # average morning wait time
+b <- (-1) # average difference afternoon wait time
+sigma_a <- 1 #std dev in intercepts
+sigma_b <- 0.5 #std dev in slopes
+rho <- (-0.7) #correlation between intercepts and slopes
+
+Mu <- c(a, b)
+
+cov_ab <- sigma_a * sigma_b*rho
+Sigma <- matrix(c(sigma_a^2, cov_ab, cov_ab, sigma_b^2), ncol=2)
+
+sigmas <- c(sigma_a, sigma_b)
+Rho <- matrix(c(1,rho,rho,1), nrow=2)
+Sigma <- diag(sigmas) %*% Rho %*% diag(sigmas) #matrix multiply
+#+END_SRC
+
+#+RESULTS:
+|     1 | -0.35 |
+| -0.35 |  0.25 |
+
+#+BEGIN_SRC R :results output graphics :file 13.9.png
+
+N_cafes <- 20
+library(MASS)
+set.seed(5)
+vary_effects <- mvrnorm(N_cafes, Mu, Sigma)
+
+a_cafe <- vary_effects[,1]
+b_cafe <- vary_effects[,2]
+
+plot(a_cafe, b_cafe, col=rangi2,
+     xlab="intercepts (a_cafe)", ylab="slopes (b_cafe)")
+
+library(ellipse)
+
+for (l in c(0.1, 0.3, 0.5, 0.8, 0.99))
+    lines(ellipse(Sigma, centre=Mu, level=l), col=col.alpha("black", 0.2))
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13.9.png]]
+
+** 13.1.2. Simulate Observations
+#+BEGIN_SRC R
+set.seed(5)
+N_visits <- 10
+afternoon <- rep(0:1, N_visits*N_cafes/2)
+cafe_id <- rep(1:N_cafes, each=N_visits)
+
+mu <- a_cafe[cafe_id] + b_cafe[cafe_id]*afternoon
+sigma <- 0.5 #std dev within cafes
+wait <- rnorm(N_visits*N_cafes, mu, sigma)
+d <- data.frame(cafe=cafe_id, afternoon=afternoon, wait=wait)
+
+#+END_SRC
+
+#+RESULTS:
+|  1 | 0 |  4.99899260236057 |
+|  1 | 1 |  2.21339437452688 |
+|  1 | 0 |  4.18667295767766 |
+|  1 | 1 |   3.5624399427455 |
+|  1 | 0 |  3.99567794715879 |
+|  1 | 1 |  2.89571764670578 |
+|  1 | 0 |  3.78045816186329 |
+|  1 | 1 |  2.38448367728668 |
+|  1 | 0 |  3.86179817458527 |
+|  1 | 1 |  2.58000038746721 |
+|  2 | 0 |  2.74212231099099 |
+|  2 | 1 |  1.35259070434471 |
+|  2 | 0 |  2.52150946018207 |
+|  2 | 1 |  0.96281023915262 |
+|  2 | 0 |  1.95439770199858 |
+|  2 | 1 | 0.796251112695298 |
+|  2 | 0 |  2.38715042866441 |
+|  2 | 1 |  1.20242312052661 |
+|  2 | 0 |  1.97845256540676 |
+|  2 | 1 |  1.37536530240102 |
+|  3 | 0 |  3.99751952349684 |
+|  3 | 1 |  3.04496155266553 |
+|  3 | 0 |  4.27662571559016 |
+|  3 | 1 |  2.86572711061637 |
+|  3 | 0 |  4.18578195976519 |
+|  3 | 1 |  2.44685320590158 |
+|  3 | 0 |  3.51464636483218 |
+|  3 | 1 |  2.46669520041685 |
+|  3 | 0 |  3.92961920398048 |
+|  3 | 1 |  2.47771328619668 |
+|  4 | 0 |  3.24158662740485 |
+|  4 | 1 |  2.03817431999507 |
+|  4 | 0 |  3.51714951382569 |
+|  4 | 1 |  2.16716533405271 |
+|  4 | 0 |  3.55040093265054 |
+|  4 | 1 |  2.07330717444106 |
+|  4 | 0 |  3.83037798405617 |
+|  4 | 1 |  2.21152648414049 |
+|  4 | 0 |  3.43822213355337 |
+|  4 | 1 |  1.86953887784077 |
+|  5 | 0 |  1.95017862585644 |
+|  5 | 1 | 0.244257490772016 |
+|  5 | 0 |  2.18873509195762 |
+|  5 | 1 |  1.10336730108534 |
+|  5 | 0 |  2.03881278101281 |
+|  5 | 1 | 0.760253934926867 |
+|  5 | 0 |  2.89458686654447 |
+|  5 | 1 |  0.87869273135533 |
+|  5 | 0 |  1.66308426502239 |
+|  5 | 1 |  0.85448870921442 |
+|  6 | 0 |  4.59739623479443 |
+|  6 | 1 |  2.45871319680283 |
+|  6 | 0 |  4.41288960066223 |
+|  6 | 1 |  3.44028407506603 |
+|  6 | 0 |  4.62934550935734 |
+|  6 | 1 |  3.18172282639978 |
+|  6 | 0 |  3.96108076066389 |
+|  6 | 1 |  2.71982415760773 |
+|  6 | 0 |  4.04309487087987 |
+|  6 | 1 |  2.96026895761306 |
+|  7 | 0 |  2.79677575001216 |
+|  7 | 1 |  2.73565874153946 |
+|  7 | 0 |  4.13236651680099 |
+|  7 | 1 |  2.27224473250761 |
+|  7 | 0 |  3.76554641288155 |
+|  7 | 1 |  2.61490880800527 |
+|  7 | 0 |  3.68003654353629 |
+|  7 | 1 |   1.1851767761337 |
+|  7 | 0 |  3.41771401101229 |
+|  7 | 1 |  2.80807891317404 |
+|  8 | 0 |  3.47014514976723 |
+|  8 | 1 |  3.04250793600684 |
+|  8 | 0 |  5.24666863969953 |
+|  8 | 1 |  2.30114249206313 |
+|  8 | 0 |  3.27123779307457 |
+|  8 | 1 |  2.63078374847611 |
+|  8 | 0 |  3.16909970941568 |
+|  8 | 1 |  2.46317826789915 |
+|  8 | 0 |  3.97281241192491 |
+|  8 | 1 |  2.13030233914188 |
+|  9 | 0 |  4.44969529019856 |
+|  9 | 1 |  3.39952181167911 |
+|  9 | 0 |  3.20532277725647 |
+|  9 | 1 |  2.13547391609055 |
+|  9 | 0 |  4.39389227281815 |
+|  9 | 1 |  3.10214117458746 |
+|  9 | 0 |  3.66425032974809 |
+|  9 | 1 |  3.57864727292543 |
+|  9 | 0 |  3.18106182019237 |
+|  9 | 1 |  2.23639273298647 |
+| 10 | 0 |  4.14188821418495 |
+| 10 | 1 |  1.79794410841757 |
+| 10 | 0 |  2.84713839464753 |
+| 10 | 1 |   2.7351887143595 |
+| 10 | 0 |  3.83410016599278 |
+| 10 | 1 |  3.01504808989445 |
+| 10 | 0 |  3.61165346044253 |
+| 10 | 1 |   2.2503628229264 |
+| 10 | 0 |  3.79198495640291 |
+| 10 | 1 |   2.9367894175398 |
+| 11 | 0 |  1.84487798605933 |
+| 11 | 1 |   1.6100472334053 |
+| 11 | 0 |  3.33299333317665 |
+| 11 | 1 |  2.10343316630244 |
+| 11 | 0 |  2.09035116513502 |
+| 11 | 1 |  1.41552226254083 |
+| 11 | 0 |  2.29285250707931 |
+| 11 | 1 |  1.50981912290438 |
+| 11 | 0 |  1.53526804448609 |
+| 11 | 1 |  1.42842450083054 |
+| 12 | 0 |  4.63254979746297 |
+| 12 | 1 |  2.87617892095571 |
+| 12 | 0 |  3.90081709824365 |
+| 12 | 1 |   2.9044614740963 |
+| 12 | 0 |    3.852237910822 |
+| 12 | 1 |  3.11942294903382 |
+| 12 | 0 |  3.99045795125291 |
+| 12 | 1 |  3.09847666644412 |
+| 12 | 0 |  3.93784633317592 |
+| 12 | 1 |  2.59335093352417 |
+| 13 | 0 |   2.9896105937642 |
+| 13 | 1 |  3.31086290938648 |
+| 13 | 0 |   4.3469988406284 |
+| 13 | 1 |  3.00137564614336 |
+| 13 | 0 |  4.04482422550794 |
+| 13 | 1 |  1.85804518062918 |
+| 13 | 0 |  4.28018791997152 |
+| 13 | 1 |  2.12838859857569 |
+| 13 | 0 |  4.29045456782192 |
+| 13 | 1 |  1.94489635667081 |
+| 14 | 0 |  2.78687427345271 |
+| 14 | 1 |  2.13818948753316 |
+| 14 | 0 |  2.88965470845613 |
+| 14 | 1 |  1.19005444369932 |
+| 14 | 0 |  3.48919989206426 |
+| 14 | 1 |  2.23232250296446 |
+| 14 | 0 |  4.29309216375373 |
+| 14 | 1 |  1.53156976246687 |
+| 14 | 0 |  3.96509129739698 |
+| 14 | 1 |   1.7688086005218 |
+| 15 | 0 |  5.47290969684181 |
+| 15 | 1 |  2.16030137380582 |
+| 15 | 0 |  4.75711596610324 |
+| 15 | 1 |  2.98937933388236 |
+| 15 | 0 |  3.74984962137186 |
+| 15 | 1 |  2.36347730516252 |
+| 15 | 0 |  4.28738701182047 |
+| 15 | 1 |  2.31017554392255 |
+| 15 | 0 |  4.75238037079078 |
+| 15 | 1 |  1.91801882139421 |
+| 16 | 0 |  3.85490225001506 |
+| 16 | 1 |  2.35355277545715 |
+| 16 | 0 |  3.26366140400228 |
+| 16 | 1 |  2.39571842060112 |
+| 16 | 0 |  3.42727271105439 |
+| 16 | 1 |  2.83996898805625 |
+| 16 | 0 |  3.92924249308656 |
+| 16 | 1 |  2.21153518270637 |
+| 16 | 0 |  3.19570154023354 |
+| 16 | 1 |  2.53363880945326 |
+| 17 | 0 |  4.15987363846287 |
+| 17 | 1 |  3.14988246034084 |
+| 17 | 0 |  4.71129696165855 |
+| 17 | 1 |  2.90986697066539 |
+| 17 | 0 |  4.35466186039907 |
+| 17 | 1 |  3.50282369752954 |
+| 17 | 0 |   4.5223043090299 |
+| 17 | 1 |  3.76571823355685 |
+| 17 | 0 |  4.03294187539122 |
+| 17 | 1 |  3.66762125290986 |
+| 18 | 0 |  6.52226906232139 |
+| 18 | 1 |  4.99620737254414 |
+| 18 | 0 |  6.17687569128409 |
+| 18 | 1 |  4.44551250320774 |
+| 18 | 0 |  6.32486011287684 |
+| 18 | 1 |  4.46774603279271 |
+| 18 | 0 |  5.84168057111762 |
+| 18 | 1 |  5.39103168002565 |
+| 18 | 0 |  6.15656948543695 |
+| 18 | 1 |  4.98336088101415 |
+| 19 | 0 |  3.58272215034761 |
+| 19 | 1 |  3.10362199346032 |
+| 19 | 0 |  4.48990420558158 |
+| 19 | 1 |  2.93487822152942 |
+| 19 | 0 |  2.68818848614525 |
+| 19 | 1 |  3.05948562018003 |
+| 19 | 0 |  2.57896730271135 |
+| 19 | 1 |  2.88247582484128 |
+| 19 | 0 |  3.03525455033956 |
+| 19 | 1 |  1.37124210443104 |
+| 20 | 0 |  3.58390712573758 |
+| 20 | 1 |  3.20669716663536 |
+| 20 | 0 |  3.49587833727659 |
+| 20 | 1 |  2.40462553082944 |
+| 20 | 0 |  3.50967319749928 |
+| 20 | 1 |   3.6666638975704 |
+| 20 | 0 |   4.4726691489961 |
+| 20 | 1 |   2.3448401673584 |
+| 20 | 0 |  3.62211227221526 |
+| 20 | 1 |  3.30269218844049 |
+
+** 13.1.3. The Varying slopes model
+#+BEGIN_SRC R :results graphics :file 13.11.png
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13.11.png]]
+
+#+END_SRC
+
+#+BEGIN_SRC R 
+set.seed(5)
+
+m13.1 <- map2stan(
+    alist(
+        wait ~ dnorm(mu, sigma),
+        mu <- a_cafe[cafe] + b_cafe[cafe]*afternoon,
+        c(a_cafe, b_cafe)[cafe] ~ dmvnorm2(c(a,b), sigma_cafe, Rho),
+        a ~ dnorm(0, 10),
+        b ~ dnorm(0, 10),
+        sigma_cafe ~ dcauchy(0,2),
+        sigma ~ dcauchy(0,2),
+        Rho ~ dlkjcorr(2)
+    ), data=d, iter=5000, warmup=2000, chains=2)
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R :results graphics :file 13.13.png
+set.seed(5)
+post <- extract.samples(m13.1)
+dens(post$Rho[,1,2])
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13.13.png]]
+
+#+BEGIN_SRC R :results graphics :file 13.14.png
+# compute unpooled estimates directly from data
+set.seed(5)
+a1 <- sapply(1:N_cafes,
+             function(i) mean(wait[cafe_id==i & afternoon==0]))
+b1 <- sapply(1:N_cafes,
+             function(i) mean(wait[cafe_id==i & afternoon==1])) - a1
+
+                                        # extract posterior means of partially pooled estimates
+post <- extract.samples(m13.1)
+a2 <- apply(post$a_cafe, 2, mean)
+b2 <- apply(post$b_cafe, 2, mean)
+
+                                        #plot both and connect with lines
+plot(a1, b1, xlab="intercept", ylab="slope",
+     pch=16, col=rangi2, ylim=c(min(b1)-0.1, max(b1)+0.1),
+     xlim=c(min(a1)-0.1, max(a1)+0.1))
+points(a2, b2, pch=1)
+for (i in 1:N_cafes) lines(c(a1[i], a2[i]), c(b1[i], b2[i]))
+
+# compute posterior mean bivariate Gaussian
+Mu_est <- c(mean(post$a), mean(post$b))
+rho_est <- mean(post$Rho[,1,2])
+sa_est <- mean(post$sigma_cafe[,1])
+sb_est <- mean(post$sigma_cafe[,2])
+cov_ab <- sa_est*sb_est*rho_est
+Sigma_est <- matrix(c(sa_est^2, cov_ab, cov_ab, sb_est^2), ncol=2)
+
+# draw contours
+for (l in c(0.1, 0.3, 0.5, 0.8, 0.99))
+    lines(ellipse(Sigma_est, centre=Mu_est, level=l),
+          col=col.alpha("black", 0.2))
+#+END_SRC
+
+#+RESULTS:
+[[file:13.14.png]]
+
+The angled shrinkage lines represent the negative correlation between intercepts and
+slopes. 
+
+* 13.2 Example: Admission decisions and gender
+
+#+BEGIN_SRC R
+
+library(rethinking)
+data(UCBadmit)
+d <- UCBadmit
+d$male <- ifelse(d$applicant.gender=="male", 1, 0)
+d$dept_id <- coerce_index(d$dept)
+#+END_SRC
+
+#+RESULTS:
+| 1 |
+| 1 |
+| 2 |
+| 2 |
+| 3 |
+| 3 |
+| 4 |
+| 4 |
+| 5 |
+| 5 |
+| 6 |
+| 6 |
+
+** 13.2.1. Varying Intercepts
+#+BEGIN_SRC R :results output
+m13.2 <- map2stan(
+    alist(
+        admit ~ dbinom(applications, p),
+        logit(p) <- a_dept[dept_id] + bm*male,
+        a_dept[dept_id] ~ dnorm(a, sigma_dept),
+        a ~ dnorm(0, 10),
+        bm ~ dnorm(0, 1),
+        sigma_dept ~ dcauchy(0, 2)
+    ),
+    data=d, warmup=500, iter=4500, chains=3)
+precis(m13.2, depth=2)
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+Warning: Variable 'applicant.gender' contains dots '.'.
+Will attempt to remove dots internally.
+recompiling to avoid crashing R session
+
+SAMPLING FOR MODEL 'admit ~ dbinom(applications, p)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 1.7e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.17 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 4500 [  0%]  (Warmup)
+Chain 1: Iteration:  450 / 4500 [ 10%]  (Warmup)
+Chain 1: Iteration:  501 / 4500 [ 11%]  (Sampling)
+Chain 1: Iteration:  950 / 4500 [ 21%]  (Sampling)
+Chain 1: Iteration: 1400 / 4500 [ 31%]  (Sampling)
+Chain 1: Iteration: 1850 / 4500 [ 41%]  (Sampling)
+Chain 1: Iteration: 2300 / 4500 [ 51%]  (Sampling)
+Chain 1: Iteration: 2750 / 4500 [ 61%]  (Sampling)
+Chain 1: Iteration: 3200 / 4500 [ 71%]  (Sampling)
+Chain 1: Iteration: 3650 / 4500 [ 81%]  (Sampling)
+Chain 1: Iteration: 4100 / 4500 [ 91%]  (Sampling)
+Chain 1: Iteration: 4500 / 4500 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.05158 seconds (Warm-up)
+Chain 1:                0.33517 seconds (Sampling)
+Chain 1:                0.38675 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'admit ~ dbinom(applications, p)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 9e-06 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.09 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 4500 [  0%]  (Warmup)
+Chain 2: Iteration:  450 / 4500 [ 10%]  (Warmup)
+Chain 2: Iteration:  501 / 4500 [ 11%]  (Sampling)
+Chain 2: Iteration:  950 / 4500 [ 21%]  (Sampling)
+Chain 2: Iteration: 1400 / 4500 [ 31%]  (Sampling)
+Chain 2: Iteration: 1850 / 4500 [ 41%]  (Sampling)
+Chain 2: Iteration: 2300 / 4500 [ 51%]  (Sampling)
+Chain 2: Iteration: 2750 / 4500 [ 61%]  (Sampling)
+Chain 2: Iteration: 3200 / 4500 [ 71%]  (Sampling)
+Chain 2: Iteration: 3650 / 4500 [ 81%]  (Sampling)
+Chain 2: Iteration: 4100 / 4500 [ 91%]  (Sampling)
+Chain 2: Iteration: 4500 / 4500 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.049191 seconds (Warm-up)
+Chain 2:                0.33313 seconds (Sampling)
+Chain 2:                0.382321 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'admit ~ dbinom(applications, p)' NOW (CHAIN 3).
+Chain 3: 
+Chain 3: Gradient evaluation took 8e-06 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 0.08 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 4500 [  0%]  (Warmup)
+Chain 3: Iteration:  450 / 4500 [ 10%]  (Warmup)
+Chain 3: Iteration:  501 / 4500 [ 11%]  (Sampling)
+Chain 3: Iteration:  950 / 4500 [ 21%]  (Sampling)
+Chain 3: Iteration: 1400 / 4500 [ 31%]  (Sampling)
+Chain 3: Iteration: 1850 / 4500 [ 41%]  (Sampling)
+Chain 3: Iteration: 2300 / 4500 [ 51%]  (Sampling)
+Chain 3: Iteration: 2750 / 4500 [ 61%]  (Sampling)
+Chain 3: Iteration: 3200 / 4500 [ 71%]  (Sampling)
+Chain 3: Iteration: 3650 / 4500 [ 81%]  (Sampling)
+Chain 3: Iteration: 4100 / 4500 [ 91%]  (Sampling)
+Chain 3: Iteration: 4500 / 4500 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 0.05889 seconds (Warm-up)
+Chain 3:                0.344324 seconds (Sampling)
+Chain 3:                0.403214 seconds (Total)
+Chain 3: 
+
+SAMPLING FOR MODEL 'admit ~ dbinom(applications, p)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 1e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.1 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 1e-06 seconds (Warm-up)
+Chain 1:                0.000105 seconds (Sampling)
+Chain 1:                0.000106 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 1200 / 12000 ][ 2400 / 12000 ][ 3600 / 12000 ][ 4800 / 12000 ][ 6000 / 12000 ][ 7200 / 12000 ][ 8400 / 12000 ][ 9600 / 12000 ][ 10800 / 12000 ][ 12000 / 12000 ]
+Aggregated binomial counts detected. Splitting to 0/1 outcome for WAIC calculation.
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+            Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+a_dept[1]   0.68   0.10       0.52       0.83  6009    1
+a_dept[2]   0.63   0.12       0.44       0.81  6539    1
+a_dept[3]  -0.58   0.07      -0.70      -0.47 11367    1
+a_dept[4]  -0.62   0.08      -0.75      -0.48  9037    1
+a_dept[5]  -1.06   0.10      -1.21      -0.89 12202    1
+a_dept[6]  -2.61   0.16      -2.85      -2.35 15119    1
+a          -0.59   0.65      -1.53       0.44  6520    1
+bm         -0.10   0.08      -0.22       0.03  4909    1
+sigma_dept  1.48   0.59       0.73       2.19  5661    1
+#+end_example
+
+** 13.2.2. Varying effects of being male
+#+BEGIN_SRC R :results output graphics :file 13.20.png
+
+m13.3 <- map2stan(
+    alist(
+        admit ~ dbinom(applications, p),
+        logit(p) <- a_dept[dept_id] + bm_dept[dept_id]*male,
+        c(a_dept, bm_dept)[dept_id] ~ dmvnorm2(c(a, bm), sigma_dept, Rho),
+        a ~ dnorm(0, 10),
+        bm ~ dnorm(0, 1),
+        sigma_dept ~ dcauchy(0, 2),
+        Rho ~ dlkjcorr(2)
+    ),
+    data=d, warmup=1000, iter=5000, chains=4, cores=3)
+
+
+plot(precis(m13.3, pars=c("a_dept", "bm_dept"), depth=2))
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13.20.png]]
+
+Look at the estimated correlation between intercepts and slopes, as well as the
+2-dimensional shrinkage it induces. 
+
+** 13.2.3. Shrinkage
+#+BEGIN_SRC R :results ouput graphics :file 13.6.png
+post <- extract.samples(m13.3)
+dens(post$Rho[,1,2])
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13.6.png]]
+
+** 13.2.4. Model comparison
+#+BEGIN_SRC R :results output
+m13.4 <- map2stan(
+    alist(
+        admit ~ dbinom(applications, p),
+        logit(p) <- a_dept[dept_id],
+        a_dept[dept_id] ~ dnorm(a, sigma_dept),
+        a ~ dnorm(0, 10),
+        sigma_dept ~ dcauchy(0, 2)
+    ),
+    data=d, warmup=500, iter=4500, chains=3)
+
+compare(m13.2, m13.3, m13.4)
+#+END_SRC
+
+** 13.2.5. More slopes
+
+* 13.3. Example: Cross-classified chimpanzees with varying slopes
+*Non-centered parametrization* tends to help with complex varying effects models 
+
+#+BEGIN_SRC R
+library(rethinking)
+data(chimpanzees)
+d <- chimpanzees
+d$recipient <- NULL
+d$block_id <- d$block
+
+m13.6 <- map2stan(
+    alist(
+                                        #likelihood
+        pulled_left ~ dbinom(1, p),
+
+                                        # linear models
+        logit(p) <- A + (BP + BPC*condition)*prosoc_left,
+        A <- a + a_actor[actor] + a_block[block_id],
+        BP <- bp + bp_actor[actor] + bp_block[block_id],
+        BPC <- bpc + bpc_actor[actor] + bpc_block[block_id],
+
+                                        # adaptive priors
+        c(a_actor, bp_actor, bpc_actor)[actor] ~ dmvnorm2(0, sigma_actor, Rho_actor),
+        c(a_block, bp_block, bpc_block)[block_id] ~ dmvnorm2(0, sigma_block, Rho_block),
+
+                                        #fixed priors
+        c(a, bp, bpc) ~ dnorm(0,1),
+        sigma_actor ~ dcauchy(0,2),
+        sigma_block ~ dcauchy(0,2),
+        Rho_actor ~ dlkjcorr(4),
+        Rho_block ~ dlkjcorr(4)
+    ), data=d, iter=5000, warmup=1000, chains=3, cores=3)
+
+
+#+END_SRC
+
+#+RESULTS:
+
+Divergent iterations > here is where *non-centered parametrization* will help. 
+
+#+BEGIN_SRC R
+m13.6NC <- map2stan(
+    alist(
+                                        #likelihood
+        pulled_left ~ dbinom(1, p),
+
+                                        # linear models
+        logit(p) <- A + (BP + BPC*condition)*prosoc_left,
+        A <- a + a_actor[actor] + a_block[block_id],
+        BP <- bp + bp_actor[actor] + bp_block[block_id],
+        BPC <- bpc + bpc_actor[actor] + bpc_block[block_id],
+
+                                        # adaptive non-centered priors
+        c(a_actor, bp_actor, bpc_actor)[actor] ~ dmvnormNC(sigma_actor, Rho_actor),
+        c(a_block, bp_block, bpc_block)[block_id] ~ dmvnormNC(sigma_block, Rho_block),
+
+                                        #fixed priors
+        c(a, bp, bpc) ~ dnorm(0,1),
+        sigma_actor ~ dcauchy(0,2),
+        sigma_block ~ dcauchy(0,2),
+        Rho_actor ~ dlkjcorr(4),
+        Rho_block ~ dlkjcorr(4)
+    ), data=d, iter=5000, warmup=1000, chains=3, cores=3)
+
+
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R :results output
+p <- link(m13.6NC)
+str(p)
+
+#+END_SRC
+
+#+RESULTS:
+: [ 100 / 1000 ][ 200 / 1000 ][ 300 / 1000 ][ 400 / 1000 ][ 500 / 1000 ][ 600 / 1000 ][ 700 / 1000 ][ 800 / 1000 ][ 900 / 1000 ][ 1000 / 1000 ]
+: 
+: List of 4
+:  $ p  : num [1:1000, 1:504] 0.187 0.249 0.401 0.215 0.203 ...
+:  $ A  : num [1:1000, 1:504] -1.469 -1.103 -0.402 -1.296 -1.365 ...
+:  $ BP : num [1:1000, 1:504] 0.96 0.46 0.464 0.947 1.054 ...
+:  $ BPC: num [1:1000, 1:504] -1.061 -1.05 -0.567 -2.317 -0.619 ...
+
+* 13.4. Continuous categories and the Gaussian process
+*Guassian Process Regression* a way to apply the varying effects approach to continuous
+ categories of this kind. This allows us to estimate a unique intercept (or slope) for any
+ age, while still regarding age as a continuous dimension in which similar ages have more
+ similar intercepts (or slopes). 
+
+** 13.4.1. Example: Spatial autocorrelation in Oceanic tools. 
+#+BEGIN_SRC R :results output
+library(rethinking)
+
+data(islandsDistMatrix)
+
+Dmat <- islandsDistMatrix
+
+colnames(Dmat) <- c("Ml","Ti", "SC","Ya","Fi","Tr","Ch","Mn","To","Ha")
+round(Dmat, 1)
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+            Ml  Ti  SC  Ya  Fi  Tr  Ch  Mn  To  Ha
+Malekula   0.0 0.5 0.6 4.4 1.2 2.0 3.2 2.8 1.9 5.7
+Tikopia    0.5 0.0 0.3 4.2 1.2 2.0 2.9 2.7 2.0 5.3
+Santa Cruz 0.6 0.3 0.0 3.9 1.6 1.7 2.6 2.4 2.3 5.4
+Yap        4.4 4.2 3.9 0.0 5.4 2.5 1.6 1.6 6.1 7.2
+Lau Fiji   1.2 1.2 1.6 5.4 0.0 3.2 4.0 3.9 0.8 4.9
+Trobriand  2.0 2.0 1.7 2.5 3.2 0.0 1.8 0.8 3.9 6.7
+Chuuk      3.2 2.9 2.6 1.6 4.0 1.8 0.0 1.2 4.8 5.8
+Manus      2.8 2.7 2.4 1.6 3.9 0.8 1.2 0.0 4.6 6.7
+Tonga      1.9 2.0 2.3 6.1 0.8 3.9 4.8 4.6 0.0 5.0
+Hawaii     5.7 5.3 5.4 7.2 4.9 6.7 5.8 6.7 5.0 0.0
+#+end_example
+
+#+BEGIN_SRC R
+
+data(Kline2)
+d <- Klprecis(m13.)ine2
+d$society <- 1:10
+
+
+M13.7 <- map2stan(
+    alist(
+        total_tools ~ dpois(lambda),
+        log(lambda) <- a + g[society] + bp*logpop,
+        g[society] ~ GPL2(Dmat, etasq, rhosq, 0.01),
+        a ~ dnorm(0,10),
+        bp ~ dnorm(0,1),
+        etasq ~ dcauchy(0,1),
+        rhosq ~ dcauchy(0,1)
+    ), data=list(
+           total_tools=d$total_tools,
+           logpop=d$logpop,
+           society=d$society,
+           Dmat=islandsDistMatrix),
+    warmup=2000, iter=1e4, chains=4)
+
+#+END_SRC
+
+#+BEGIN_SRC R :results graphics :file 13.33.png
+post <- extract.samples(M13.7)
+
+curve(median(post$etasq)*exp(-median(post$rhosq)*x^2), from=0, to=10,
+      xlab="distance", ylab="covariance", ylim=c(0,1), yaxp=c(0,1,4), lwd=2)
+
+for (i in 1:100)
+    curve(post$etasq[i]*exp(-post$rhosq[i]*x^2), add=TRUE,
+          col=col.alpha("black", 0.2))
+
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13.33.png]]
+
+Let's consider the correlations among societies that are implied by the posterior median. 
+
+#+BEGIN_SRC R :results output
+# compute posterior media covariance among societies
+K <- matrix(0, nrow=10, ncol=10)
+for (i in 1:10)
+    for (j in 1:10)
+        K[i,j] <- median(post$etasq) *
+            exp(-median(post$rhosq) * islandsDistMatrix[i,j]^2)
+
+diag(K) <- median(post$etasq) + 0.01
+
+                                        #convert to a correlation matrix
+Rho <- round(cov2cor(K), 2)
+colnames(Rho) <- c("Ml","Ti", "SC","Ya","Fi","Tr","Ch","Mn","To","Ha")
+rownames(Rho) <- colnames(Rho)
+Rho
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+     Ml   Ti   SC   Ya   Fi   Tr   Ch   Mn   To Ha
+Ml 1.00 0.87 0.81 0.00 0.52 0.18 0.02 0.04 0.24  0
+Ti 0.87 1.00 0.92 0.00 0.52 0.19 0.03 0.05 0.20  0
+SC 0.81 0.92 1.00 0.00 0.36 0.30 0.07 0.10 0.12  0
+Ya 0.00 0.00 0.00 1.00 0.00 0.08 0.36 0.33 0.00  0
+Fi 0.52 0.52 0.36 0.00 1.00 0.02 0.00 0.00 0.75  0
+Tr 0.18 0.19 0.30 0.08 0.02 1.00 0.26 0.71 0.00  0
+Ch 0.02 0.03 0.07 0.36 0.00 0.26 1.00 0.53 0.00  0
+Mn 0.04 0.05 0.10 0.33 0.00 0.71 0.53 1.00 0.00  0
+To 0.24 0.20 0.12 0.00 0.75 0.00 0.00 0.00 1.00  0
+Ha 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00  1
+#+end_example
+
+#+BEGIN_SRC R :results graphics :file 13.36.png
+psize <- d$logpop / max(d$logpop)
+psize <- exp(psize*1.5)-2
+
+
+                                        #plot raw data and labels
+plot(d$lon2, d$lat, xlab="longitude", ylab="latitude",
+     col=rangi2, cex=psize, pch=16, xlim=c(-50,30))
+labels <- as.character(d$culture)
+text(d$lon2, d$lat, labels=labels, cex=0.7, pos=c(2,4,3,3,4,1,3,2,4,2))
+
+                                        #overlay lines shaded by Rho
+for (i in 1:10)
+    for (j in 1:10)
+        if (i < j)
+            lines(c(d$lon2[i], d$lon2[j]), c(d$lat[i], d$lat[j]),
+                    lwd=2, col=col.alpha("black", Rho[i,j]^2))
+#+END_SRC
+
+#+RESULTS:
+[[file:13.36.png]]
+
+#+BEGIN_SRC R :results graphics :file 13.37.png
+                                        # compute posterior median relationship, ignoring distance
+logpop.seq <- seq(from=6, to=14, length.out=30)
+lambda <- sapply(logpop.seq, function(lp) exp(post$a + post$bp*lp))
+lambda.median <- apply(lambda, 2, median)
+lambda.PI80 <- apply(lambda, 2, PI, prob=.8)
+
+                                        # plot raw data and labels
+
+                                        #plot raw data and labels
+plot(d$logpop, d$total_tools, xlab="log pop", ylab="total tools",
+     col=rangi2, cex=psize, pch=16)
+text(d$logpop, d$total_tools, labels=labels, cex=0.7, pos=c(2,4,3,3,4,1,3,2,4,2))
+
+                                        # display posterior predictions
+lines(logpop.seq, lambda.median, lty=2)
+lines(logpop.seq, lambda.PI80[1,], lty=2)
+lines(logpop.seq, lambda.PI80[2,], lty=2)
+
+                                        #overlay correlations
+for (i in 1:10)
+    for (j in 1:10)
+        if (i < j)
+            lines(c(d$logpop[i], d$logpop[j]),
+                  c(d$total_tools[i], d$total_tools[j]),
+                  lwd=2, col=col.alpha("black", Rho[i,j]^2))
+
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13.37.png]]
+
+* 13.6 Practice
+
+** 13E1 
+
+
+#+BEGIN_SRC R
+y_i \sim \text{Normal}(\mu_i, \sigma) \\
+        \mu_i = \alpha_{\textsc{group}[i]} + \beta_{\textsc{group}[i]} x_i \\
+        \Big[\begin{smallmatrix}
+               \alpha_{\textsc{group}} \\ 
+               \beta_{\textsc{group}}
+             \end{smallmatrix}
+        \Big] \sim \text{MVNormal}(\Big[\begin{smallmatrix}
+                                          \alpha \\ 
+                                          \beta
+                                        \end{smallmatrix}
+                                   \Big], \textbf{S}) \\
+        \textbf{S} = \Big(\begin{smallmatrix}
+                            \sigma_a & 0 \\ 
+                             0       & \sigma_b
+                          \end{smallmatrix}
+                     \Big) \textbf{R}
+                     \Big(\begin{smallmatrix}
+                            \sigma_a & 0 \\ 
+                             0       & \sigma_b
+                          \end{smallmatrix}
+                     \Big) \\
+        \alpha \sim \text{Normal}(0, 10) \\
+        \beta \sim \text{Normal}(0, 1) \\
+        \sigma \sim \text{HalfCauchy}(0, 2) \\
+        (\sigma_\alpha, \sigma_\beta) \sim \text{HalfCauchy}(0, 2) \\
+        \textbf{R} \sim \text{LKJcorr}(2)
+
+#+END_SRC
+
+** 13E2 
+Intercept > money inherited
+Slopes > increase in wealth 
+
+More money inherited at starting position generate a larger increase of wealth 
+Rich get richer, even though this is clustered for different amounts of money
+
+** 13E3
+When there is no relationship between groups
+
+** 13M1
+#+BEGIN_SRC R
+library(rethinking)
+library(ellipse)
+library(MASS)
+
+set.seed(66)
+
+a <- 3.5 # average morning wait time
+b <- (-1) # average difference afternoon wait time
+sigma_a <- 1 #std dev in intercepts
+sigma_b <- 0.5 #std dev in slopes
+rho <- (0) #correlation between intercepts and slopes
+
+Mu <- c(a, b)
+
+sigmas <- c(sigma_a, sigma_b)
+Rho <- matrix(c(1,rho,rho,1), nrow=2)
+Sigma <- diag(sigmas) %*% Rho %*% diag(sigmas) 
+
+N_cafes <- 20
+
+vary_effects <- mvrnorm(N_cafes, Mu, Sigma)
+a_cafe <- vary_effects[,1]
+b_cafe <- vary_effects[,2]
+
+#simulate observations
+N_visits <- 10
+afternoon <- rep(0:1, N_visits*N_cafes/2)
+cafe_id <- rep(1:N_cafes, each=N_visits)
+mu <- a_cafe[cafe_id] + b_cafe[cafe_id] * afternoon
+sigma <- 0.5 
+wait <- rnorm(N_visits*N_cafes, mu, sigma)
+d <- data.frame(cafe=cafe_id, afternoon=afternoon, wait=wait)
+
+m.13M1 <- map2stan(
+    alist(
+        wait ~ dnorm(mu, sigma),
+        mu <- a_cafe[cafe] + b_cafe[cafe]*afternoon,
+        c(a_cafe, b_cafe)[cafe] ~ dmvnorm2(c(a,b), sigma_cafe, Rho),
+        a ~ dnorm(0, 10),
+        b ~ dnorm(0, 10),
+        sigma_cafe ~ dcauchy(0,2),
+        sigma ~ dcauchy(0,2),
+        Rho ~ dlkjcorr(4)
+    ), data=d, iter=5000, warmup=2000, chains=2)
+
+
+
+#+END_SRC
+
+#+RESULTS:
+
+
+#+BEGIN_SRC R :results output graphics :file 13m1.1.png
+
+plot(a_cafe, b_cafe, col=rangi2,
+     xlab="intercepts (a_cafe)", ylab="slopes (b_cafe)")
+
+library(ellipse)
+
+for (l in c(0.1, 0.3, 0.5, 0.8, 0.99))
+    lines(ellipse(Sigma, centre=Mu, level=l), col=col.alpha("black", 0.2))
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13m1.1.png]]
+
+
+
+#+BEGIN_SRC R :results output graphics :file 13m1.png
+post <- extract.samples(m.13M1)
+
+dens(post$Rho[,1,2] )
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13m1.png]]
+
+** 13M2
+
+#+BEGIN_SRC R
+
+m.13M2 <- map2stan(
+    alist(
+        wait ~ dnorm(mu, sigma),
+        mu <- a_cafe[cafe] + b_cafe[cafe]*afternoon,
+        a_cafe[cafe] ~ dnorm(alpha, sigma_a),
+        b_cafe[cafe] ~ dnorm(beta, sigma_b),
+        alpha ~ dnorm(0, 10),
+        beta ~ dnorm(0, 10),
+        sigma ~ dcauchy(0,1),
+        sigma_a ~ dcauchy(0,1),
+        sigma_b ~ dcauchy(0,1)
+    ), data=d, iter=5000, warmup=2000, chains=2)
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R :results output
+compare(m.13M1, m.13M2)
+
+#+END_SRC
+
+#+RESULTS:
+:         WAIC pWAIC dWAIC weight    SE  dSE
+: m.13M1 310.3  27.0   0.0   0.78 20.16   NA
+: m.13M2 312.8  32.6   2.5   0.22 20.88 6.01
+
+#+BEGIN_SRC R :results output graphics :file 13m2.png
+
+post.13M1 <- extract.samples(m.13M1)
+post.13M2 <- extract.samples(m.13M2)
+
+a13M1 <- apply(post.13M1$a_cafe, 2, mean)
+b13M1 <- apply(post.13M1$b_cafe, 2, mean)
+
+a13M2 <- apply(post.13M2$a_cafe, 2, mean)
+b13M2 <- apply(post.13M2$b_cafe, 2, mean)
+
+plot(a13M1, b13M1 , xlab="intercept" , ylab="slope" ,
+      pch=16, col=rangi2, ylim=c(min(b13M2)-0.5, max(b13M2)+0.5),
+      xlim=c(min(a13M1)-0.5, max(a13M1)+0.5 ) )
+points(a13M2, b13M2 , pch=1 )
+for (i in 1:N_cafes) lines(c(a13M1[i], a13M2[i]), c(b13M1[i], b13M2[i]))
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13m2.png]]
+
+
+Rho is negative (-.7), thus negative correlation between intercept and slope. 
+Left of center x, blue dots (m1) move up, and right off center they move down. 
+
+** 13M3
+
+#+BEGIN_SRC R :results output
+data(UCBadmit)
+d <- UCBadmit
+d$male <- ifelse(d$applicant.gender=="male", 1, 0)
+d$dept_id <- coerce_index(d$dept)
+
+
+m13.3 <- map2stan(
+    alist(
+        admit ~ dbinom(applications, p),
+        logit(p) <- a_dept[dept_id] + bm_dept[dept_id]*male,
+        c(a_dept, bm_dept)[dept_id] ~ dmvnorm2(c(a, bm), sigma_dept, Rho),
+        a ~ dnorm(0, 10),
+        bm ~ dnorm(0, 1),
+        sigma_dept ~ dcauchy(0, 2),
+        Rho ~ dlkjcorr(2)
+    ),
+    data=d, warmup=1000, iter=5000, chains=4, cores=3)
+
+
+m13m3 <- map2stan(
+    alist(
+        admit ~ dbinom(applications, p),
+        logit(p) <- a_dept[dept_id] + bm_dept[dept_id]*male,
+        c(a_dept, bm_dept)[dept_id] ~ dmvnormNC(sigma_dept, Rho),
+        a ~ dnorm(0, 10),
+        bm ~ dnorm(0, 1),
+        sigma_dept ~ dcauchy(0, 2),
+        Rho ~ dlkjcorr(2)
+    ),
+    data=d, warmup=1000, iter=5000, chains=4, cores=3)
+
+compare(m13.3, m13m3)
+
+#plot(precis(m13.3, pars=c("a_dept", "bm_dept"), depth=2))
+
+
+#+END_SRC
+
+#+RESULTS:
+| 1 |
+| 1 |
+| 2 |
+| 2 |
+| 3 |
+| 3 |
+| 4 |
+| 4 |
+| 5 |
+| 5 |
+| 6 |
+| 6 |
+
+#+BEGIN_SRC R :results output
+precis(m13.3, depth=2)
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+               Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+bm_dept[1]    -0.79   0.27      -1.20      -0.35  8468    1
+bm_dept[2]    -0.21   0.32      -0.71       0.32  9192    1
+bm_dept[3]     0.08   0.14      -0.14       0.31 12989    1
+bm_dept[4]    -0.09   0.14      -0.33       0.12 13156    1
+bm_dept[5]     0.12   0.18      -0.18       0.41 13590    1
+bm_dept[6]    -0.12   0.27      -0.55       0.31 11180    1
+a_dept[1]      1.30   0.25       0.90       1.72  8585    1
+a_dept[2]      0.74   0.32       0.22       1.24  9412    1
+a_dept[3]     -0.65   0.08      -0.78      -0.51 14217    1
+a_dept[4]     -0.62   0.10      -0.79      -0.45 13143    1
+a_dept[5]     -1.13   0.11      -1.32      -0.96 14247    1
+a_dept[6]     -2.60   0.20      -2.92      -2.28 12527    1
+a             -0.49   0.73      -1.69       0.56  8847    1
+bm            -0.16   0.24      -0.54       0.18  9391    1
+sigma_dept[1]  1.68   0.62       0.81       2.44  8583    1
+sigma_dept[2]  0.50   0.26       0.13       0.82  7390    1
+Rho[1,1]       1.00   0.00       1.00       1.00   NaN  NaN
+Rho[1,2]      -0.32   0.35      -0.88       0.20 10609    1
+Rho[2,1]      -0.32   0.35      -0.88       0.20 10609    1
+Rho[2,2]       1.00   0.00       1.00       1.00 15122    1
+Warning message:
+In precis(m13.3, depth = 2) :
+  There were 7 divergent iterations during sampling.
+Check the chains (trace plots, n_eff, Rhat) carefully to ensure they are valid.
+#+end_example
+
+#+BEGIN_SRC R :results output
+precis(m13m3, depth=2)
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+                  Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+z_N_dept_id[1,1]  0.82   0.29       0.37       1.26  3681    1
+z_N_dept_id[1,2]  0.43   0.23       0.07       0.79  5834    1
+z_N_dept_id[1,3] -0.44   0.14      -0.65      -0.21  3222    1
+z_N_dept_id[1,4] -0.42   0.14      -0.63      -0.19  3394    1
+z_N_dept_id[1,5] -0.76   0.24      -1.13      -0.39  3076    1
+z_N_dept_id[1,6] -1.74   0.52      -2.52      -0.88  2892    1
+z_N_dept_id[2,1] -1.63   0.68      -2.67      -0.55 10919    1
+z_N_dept_id[2,2] -0.14   0.72      -1.24       1.05 13119    1
+z_N_dept_id[2,3]  0.20   0.44      -0.50       0.85 11573    1
+z_N_dept_id[2,4] -0.28   0.44      -0.98       0.40 11875    1
+z_N_dept_id[2,5]  0.23   0.57      -0.65       1.15 12834    1
+z_N_dept_id[2,6] -0.61   0.78      -1.87       0.62 12478    1
+L_Rho[1,1]        1.00   0.00       1.00       1.00   NaN  NaN
+L_Rho[1,2]        0.00   0.00       0.00       0.00   NaN  NaN
+L_Rho[2,1]       -0.20   0.35      -0.78       0.33 10207    1
+L_Rho[2,2]        0.91   0.11       0.76       1.00  8165    1
+a                -0.08  10.14     -16.45      15.52 17822    1
+bm               -0.01   1.00      -1.55       1.64 18264    1
+sigma_dept[1]     1.65   0.57       0.85       2.37  2970    1
+sigma_dept[2]     0.47   0.24       0.12       0.78  5582    1
+a_dept[1]         1.24   0.27       0.79       1.66  8444    1
+a_dept[2]         0.64   0.30       0.16       1.09 12679    1
+a_dept[3]        -0.65   0.09      -0.79      -0.51 19872    1
+a_dept[4]        -0.63   0.10      -0.80      -0.46 20159    1
+a_dept[5]        -1.14   0.11      -1.32      -0.96 18055    1
+a_dept[6]        -2.61   0.20      -2.92      -2.28 17453    1
+bm_dept[1]       -0.71   0.29      -1.17      -0.25  8256    1
+bm_dept[2]       -0.10   0.30      -0.56       0.37 12825    1
+bm_dept[3]        0.11   0.13      -0.10       0.33 20970    1
+bm_dept[4]       -0.07   0.14      -0.29       0.15 20319    1
+bm_dept[5]        0.16   0.18      -0.13       0.44 21167    1
+bm_dept[6]       -0.09   0.27      -0.51       0.34 18920    1
+Rho[1,1]          1.00   0.00       1.00       1.00   NaN  NaN
+Rho[1,2]         -0.20   0.35      -0.78       0.33 10207    1
+Rho[2,1]         -0.20   0.35      -0.78       0.33 10207    1
+Rho[2,2]          1.00   0.00       1.00       1.00 16230    1
+Warning message:
+In precis(m13m3, depth = 2) :
+  There were 4 divergent iterations during sampling.
+Check the chains (trace plots, n_eff, Rhat) carefully to ensure they are valid.
+#+end_example
+
+** 13M4
+#+BEGIN_SRC R :results output
+
+data(islandsDistMatrix)
+Dmat <- islandsDistMatrix
+colnames(Dmat) <- c("Ml","Ti", "SC","Ya","Fi","Tr","Ch","Mn","To","Ha")
+round(Dmat, 1)
+
+
+data(Kline2)
+d <- Kline2
+d$society <- 1:10
+
+m13.7 <- map2stan(
+    alist(
+        total_tools ~ dpois(lambda),
+        log(lambda) <- a + g[society] + bp*logpop,
+        g[society] ~ GPL2(Dmat, etasq, rhosq, 0.01),
+        a ~ dnorm(0,10),
+        bp ~ dnorm(0,1),
+        etasq ~ dcauchy(0,1),
+        rhosq ~ dcauchy(0,1)
+    ), data=list(
+           total_tools=d$total_tools,
+           logpop=d$logpop,
+           society=d$society,
+           Dmat=islandsDistMatrix),
+    warmup=2000, iter=1e4, chains=4)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+            Ml  Ti  SC  Ya  Fi  Tr  Ch  Mn  To  Ha
+Malekula   0.0 0.5 0.6 4.4 1.2 2.0 3.2 2.8 1.9 5.7
+Tikopia    0.5 0.0 0.3 4.2 1.2 2.0 2.9 2.7 2.0 5.3
+Santa Cruz 0.6 0.3 0.0 3.9 1.6 1.7 2.6 2.4 2.3 5.4
+Yap        4.4 4.2 3.9 0.0 5.4 2.5 1.6 1.6 6.1 7.2
+Lau Fiji   1.2 1.2 1.6 5.4 0.0 3.2 4.0 3.9 0.8 4.9
+Trobriand  2.0 2.0 1.7 2.5 3.2 0.0 1.8 0.8 3.9 6.7
+Chuuk      3.2 2.9 2.6 1.6 4.0 1.8 0.0 1.2 4.8 5.8
+Manus      2.8 2.7 2.4 1.6 3.9 0.8 1.2 0.0 4.6 6.7
+Tonga      1.9 2.0 2.3 6.1 0.8 3.9 4.8 4.6 0.0 5.0
+Hawaii     5.7 5.3 5.4 7.2 4.9 6.7 5.8 6.7 5.0 0.0
+
+recompiling to avoid crashing R session
+
+SAMPLING FOR MODEL 'total_tools ~ dpois(lambda)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 5.8e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.58 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 1: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 1: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 1: Iteration: 2001 / 10000 [ 20%]  (Sampling)
+Chain 1: Iteration: 3000 / 10000 [ 30%]  (Sampling)
+Chain 1: Iteration: 4000 / 10000 [ 40%]  (Sampling)
+Chain 1: Iteration: 5000 / 10000 [ 50%]  (Sampling)
+Chain 1: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 1: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 1: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 1: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 1: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2.57966 seconds (Warm-up)
+Chain 1:                11.8707 seconds (Sampling)
+Chain 1:                14.4504 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'total_tools ~ dpois(lambda)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 2.2e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.22 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 2: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 2: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 2: Iteration: 2001 / 10000 [ 20%]  (Sampling)
+Chain 2: Iteration: 3000 / 10000 [ 30%]  (Sampling)
+Chain 2: Iteration: 4000 / 10000 [ 40%]  (Sampling)
+Chain 2: Iteration: 5000 / 10000 [ 50%]  (Sampling)
+Chain 2: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 2: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 2: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 2: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 2: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 2.72085 seconds (Warm-up)
+Chain 2:                11.3601 seconds (Sampling)
+Chain 2:                14.0809 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'total_tools ~ dpois(lambda)' NOW (CHAIN 3).
+Chain 3: 
+Chain 3: Gradient evaluation took 2.5e-05 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 0.25 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 3: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 3: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 3: Iteration: 2001 / 10000 [ 20%]  (Sampling)
+Chain 3: Iteration: 3000 / 10000 [ 30%]  (Sampling)
+Chain 3: Iteration: 4000 / 10000 [ 40%]  (Sampling)
+Chain 3: Iteration: 5000 / 10000 [ 50%]  (Sampling)
+Chain 3: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 3: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 3: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 3: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 3: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 3.01731 seconds (Warm-up)
+Chain 3:                11.897 seconds (Sampling)
+Chain 3:                14.9143 seconds (Total)
+Chain 3: 
+
+SAMPLING FOR MODEL 'total_tools ~ dpois(lambda)' NOW (CHAIN 4).
+Chain 4: 
+Chain 4: Gradient evaluation took 2.6e-05 seconds
+Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 0.26 seconds.
+Chain 4: Adjust your expectations accordingly!
+Chain 4: 
+Chain 4: 
+Chain 4: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 4: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 4: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 4: Iteration: 2001 / 10000 [ 20%]  (Sampling)
+Chain 4: Iteration: 3000 / 10000 [ 30%]  (Sampling)
+Chain 4: Iteration: 4000 / 10000 [ 40%]  (Sampling)
+Chain 4: Iteration: 5000 / 10000 [ 50%]  (Sampling)
+Chain 4: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 4: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 4: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 4: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 4: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 4: 
+Chain 4:  Elapsed Time: 2.82658 seconds (Warm-up)
+Chain 4:                10.0216 seconds (Sampling)
+Chain 4:                12.8482 seconds (Total)
+Chain 4: 
+
+SAMPLING FOR MODEL 'total_tools ~ dpois(lambda)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 2.7e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.27 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2e-06 seconds (Warm-up)
+Chain 1:                5.5e-05 seconds (Sampling)
+Chain 1:                5.7e-05 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 3200 / 32000 ][ 6400 / 32000 ][ 9600 / 32000 ][ 12800 / 32000 ][ 16000 / 32000 ][ 19200 / 32000 ][ 22400 / 32000 ][ 25600 / 32000 ][ 28800 / 32000 ][ 32000 / 32000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+#+end_example
+
+#+BEGIN_SRC R :results output
+precis(m13.7, depth=2)
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+       Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+g[1]  -0.25   0.44      -0.95       0.38  3309    1
+g[2]  -0.10   0.43      -0.78       0.50  3072    1
+g[3]  -0.15   0.41      -0.76       0.46  3087    1
+g[4]   0.32   0.37      -0.22       0.86  3070    1
+g[5]   0.04   0.37      -0.52       0.54  2984    1
+g[6]  -0.44   0.37      -1.00       0.07  3257    1
+g[7]   0.12   0.36      -0.44       0.61  3058    1
+g[8]  -0.24   0.36      -0.80       0.25  3252    1
+g[9]   0.25   0.35      -0.24       0.75  3112    1
+g[10] -0.11   0.46      -0.84       0.55  4899    1
+a      1.26   1.16      -0.62       3.05  4589    1
+bp     0.25   0.12       0.07       0.44  5940    1
+etasq  0.35   0.58       0.00       0.71  5162    1
+rhosq  2.01  25.80       0.01       2.16  6491    1
+#+end_example
+
+#+BEGIN_SRC R
+
+d$contact_high <- ifelse(d$contact=="high", 1, 0)
+
+#no interaction
+m10.11 <- map2stan(
+    alist(
+        total_tools ~ dpois(lambda),
+        log(lambda) <- a + bp*logpop + bc*contact_high,
+        a ~ dnorm(0, 100),
+        c(bp, bc) ~ dnorm(0, 1)
+    ), data =d)
+
+# no contact rate
+m10.12 <- map2stan(
+    alist(
+        total_tools ~ dpois(lambda),
+        log(lambda) <- a + bp*logpop,
+        a ~ dnorm(0, 100),
+        bp ~ dnorm(0, 1)
+    ), data =d)
+
+# no log pop
+m10.13 <- map2stan(
+    alist(
+        total_tools ~ dpois(lambda),
+        log(lambda) <- a + bc*contact_high,
+        a ~ dnorm(0, 100),
+        bc ~ dnorm(0, 1)
+    ), data =d)
+
+# intercept only (null model)
+m10.14 <- map2stan(
+    alist(
+        total_tools ~ dpois(lambda),
+        log(lambda) <- a, 
+        a ~ dnorm(0, 100)
+        ), data =d)
+
+d$logpop_c <- d$logpop - mean(d$logpop)
+
+m10.10stan.c <- map2stan(
+    alist(
+        total_tools ~ dpois(lambda),
+        log(lambda) <- a + bp*logpop_c + bc*contact_high +
+            bcp * logpop_c * contact_high,
+        a ~ dnorm(0,10),
+        bp ~ dnorm(0,1),
+        bc ~ dnorm(0,1),
+        bcp ~ dnorm(0,1)
+    ), data=d, iter=3000, warmup=1000, chains=4)
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R :results output graphics :file m13m4.png
+(islands.compare <- compare(m10.11, m10.12, m10.13, m10.14, m10.10stan.c, m13.7, n=1e4))
+plot(islands.compare)
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:m13m4.png]]
+
+** 13H1
+#+BEGIN_SRC R
+data(bangladesh)
+d <- bangladesh
+
+sort(unique(d$district))
+
+d$district_id <- as.integer(as.factor(d$district))
+#sort(unique(d$district_id))
+d$use_contraception <- d$use.contraception
+
+
+m13h1<- map2stan(
+    alist(
+        use_contraception ~ dbinom(1, p),
+        logit(p) <- a + a_district[district_id] + (b + b_urban[district_id])*urban,
+        c(a_district, b_urban)[district_id] ~ dmvnorm2(0, sigma_district, Rho),
+        a ~ dnorm(0, 10),
+        b ~ dnorm(0, 10),
+        sigma_district ~ dcauchy(0, 1),
+        Rho ~ dlkjcorr(2)
+    ), data=d, iter=4000, warmup=1000, chains=4, cores=4) 
+
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R :results output graphics :file 13h1-1.png
+posterior.samples <- extract.samples(m13h1)
+dens( posterior.samples$Rho[,1,2] )
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13h1-1.png]]
+
+#+BEGIN_SRC R :results output graphics :file 13h1-2.png
+plot(precis(m13h1, pars = c("a", "b"), depth = 2))
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13h1-2.png]]
+
+
+
+#+BEGIN_SRC R :results output graphics :file 13h1-3.png
+
+
+post <- extract.samples(m13h1)
+
+a13h1 <- apply(post$a_district, 2, mean)
+b13h1 <- apply(post$b_urban, 2, mean)
+
+plot(a13h1, b13h1 , xlab="intercept" , ylab="slope" ,
+       pch=16, col=rangi2, ylim=c(min(b13h1)-0.5, max(b13h1)+0.5),
+       xlim=c(min(a13h1)-0.5, max(a13h1)+0.5 ) )
+## points(a13M2, b13M2 , pch=1 )
+## for (i in 1:N_cafes) lines(c(a13M1[i], a13M2[i]), c(b13M1[i], b13M2[i]))
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13h1-3.png]]
+
+There is a negative correlation between intercepts (districts) and slopes (urban). 
+If urban is less influential in districts with higher use.  
+
+#+BEGIN_SRC R :results output graphics :file 13h1-4.png
+
+
+data.rural <- list(
+  urban=rep(0,60),
+  district_id=1:60 )
+
+data.urban <- list(
+  urban=rep(1,60),
+  district_id=1:60 )
+
+predictions.rural <- link(m13h1 , data=data.rural)
+predictions.urban <- link(m13h1 , data=data.urban)
+means.rural <- apply(predictions.rural , 2 , mean)
+means.urban <- apply(predictions.urban , 2 , mean)
+plot(means.rural , means.urban , col="red",
+      xlim=c(0,1) , ylim=c(0,1) ,
+      xlab="rural" , ylab="urban")
+abline(a=0,b=1,lty=2)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13h1-4.png]]
+
+Urban proportion using contraception is higher
+
+** 13H2
+#+BEGIN_SRC R :results output
+data(Oxboys)
+d <- Oxboys
+
+d$height_c <- (d$height - mean(d$height)) / sd(d$height)
+
+m13h2<- map2stan(
+    alist(
+        height_c ~ dnorm(mu, sigma),
+        mu <- a_subject[Subject] + (b_subject[Subject])*age,
+        c(a_subject, b_subject)[Subject] ~ dmvnorm2(c(a, b), sigma_subject, Rho),
+        a ~ dnorm(0, 10),
+        b ~ dnorm(0, 1),
+        sigma ~ dcauchy(0,2),
+        sigma_subject ~ dcauchy(0,2),
+        Rho ~ dlkjcorr(2)
+    ), data=d, iter=4000, warmup=1000, chains=4, cores=4) 
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+
+SAMPLING FOR MODEL 'height ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+
+SAMPLING FOR MODEL 'height ~ dnorm(mu, sigma)' NOW (CHAIN 2).
+
+SAMPLING FOR MODEL 'height ~ dnorm(mu, sigma)' NOW (CHAIN 3).
+
+SAMPLING FOR MODEL 'height ~ dnorm(mu, sigma)' NOW (CHAIN 4).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.000187 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 1.87 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 4000 [  0%]  (Warmup)
+Chain 2: 
+Chain 2: Gradient evaluation took 0.000145 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 1.45 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 4000 [  0%]  (Warmup)
+Chain 3: 
+Chain 3: Gradient evaluation took 0.000173 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 1.73 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 4000 [  0%]  (Warmup)
+Chain 4: 
+Chain 4: Gradient evaluation took 0.000258 seconds
+Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 2.58 seconds.
+Chain 4: Adjust your expectations accordingly!
+Chain 4: 
+Chain 4: 
+Chain 4: Iteration:    1 / 4000 [  0%]  (Warmup)
+Chain 1: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 4: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 3: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 2: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 1: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 4: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 3: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 2: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 4000 [ 25%]  (Sampling)
+Chain 3: Iteration: 1001 / 4000 [ 25%]  (Sampling)
+Chain 2: Iteration: 1001 / 4000 [ 25%]  (Sampling)
+Chain 4: Iteration: 1001 / 4000 [ 25%]  (Sampling)
+Chain 1: Iteration: 1400 / 4000 [ 35%]  (Sampling)
+Chain 3: Iteration: 1400 / 4000 [ 35%]  (Sampling)
+Chain 2: Iteration: 1400 / 4000 [ 35%]  (Sampling)
+Chain 4: Iteration: 1400 / 4000 [ 35%]  (Sampling)
+Chain 1: Iteration: 1800 / 4000 [ 45%]  (Sampling)
+Chain 3: Iteration: 1800 / 4000 [ 45%]  (Sampling)
+Chain 2: Iteration: 1800 / 4000 [ 45%]  (Sampling)
+Chain 4: Iteration: 1800 / 4000 [ 45%]  (Sampling)
+Chain 1: Iteration: 2200 / 4000 [ 55%]  (Sampling)
+Chain 3: Iteration: 2200 / 4000 [ 55%]  (Sampling)
+Chain 2: Iteration: 2200 / 4000 [ 55%]  (Sampling)
+Chain 4: Iteration: 2200 / 4000 [ 55%]  (Sampling)
+Chain 1: Iteration: 2600 / 4000 [ 65%]  (Sampling)
+Chain 3: Iteration: 2600 / 4000 [ 65%]  (Sampling)
+Chain 2: Iteration: 2600 / 4000 [ 65%]  (Sampling)
+Chain 4: Iteration: 2600 / 4000 [ 65%]  (Sampling)
+Chain 1: Iteration: 3000 / 4000 [ 75%]  (Sampling)
+Chain 3: Iteration: 3000 / 4000 [ 75%]  (Sampling)
+Chain 2: Iteration: 3000 / 4000 [ 75%]  (Sampling)
+Chain 4: Iteration: 3000 / 4000 [ 75%]  (Sampling)
+Chain 1: Iteration: 3400 / 4000 [ 85%]  (Sampling)
+Chain 3: Iteration: 3400 / 4000 [ 85%]  (Sampling)
+Chain 2: Iteration: 3400 / 4000 [ 85%]  (Sampling)
+Chain 4: Iteration: 3400 / 4000 [ 85%]  (Sampling)
+Chain 1: Iteration: 3800 / 4000 [ 95%]  (Sampling)
+Chain 3: Iteration: 3800 / 4000 [ 95%]  (Sampling)
+Chain 2: Iteration: 3800 / 4000 [ 95%]  (Sampling)
+Chain 4: Iteration: 3800 / 4000 [ 95%]  (Sampling)
+Chain 1: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 25.6312 seconds (Warm-up)
+Chain 1:                94.2978 seconds (Sampling)
+Chain 1:                119.929 seconds (Total)
+Chain 1: 
+Chain 3: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 26.4915 seconds (Warm-up)
+Chain 3:                94.1965 seconds (Sampling)
+Chain 3:                120.688 seconds (Total)
+Chain 3: 
+Chain 2: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 26.5282 seconds (Warm-up)
+Chain 2:                94.2508 seconds (Sampling)
+Chain 2:                120.779 seconds (Total)
+Chain 2: 
+Chain 4: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 4: 
+Chain 4:  Elapsed Time: 26.5763 seconds (Warm-up)
+Chain 4:                95.0631 seconds (Sampling)
+Chain 4:                121.639 seconds (Total)
+Chain 4: 
+
+SAMPLING FOR MODEL 'height ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 8.9e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.89 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2e-06 seconds (Warm-up)
+Chain 1:                0.000117 seconds (Sampling)
+Chain 1:                0.000119 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 1200 / 12000 ][ 2400 / 12000 ][ 3600 / 12000 ][ 4800 / 12000 ][ 6000 / 12000 ][ 7200 / 12000 ][ 8400 / 12000 ][ 9600 / 12000 ][ 10800 / 12000 ][ 12000 / 12000 ]
+Warning messages:
+1: There were 11987 transitions after warmup that exceeded the maximum treedepth. Increase max_treedepth above 10. See
+http://mc-stan.org/misc/warnings.html#maximum-treedepth-exceeded 
+2: Examine the pairs() plot to diagnose sampling problems
+ 
+3: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+4: Examine the pairs() plot to diagnose sampling problems
+#+end_example
+
+increased cauchy value 
+
+Intercept explains more of the variation
+
+** 13H3
+#+BEGIN_SRC R :results output graphics :file 13h3.png
+
+post <- extract.samples(m13h2)
+a <- apply(post$a_subject, 2, mean)
+b <- apply(post$b_subject, 2, mean )
+plot(a, b, xlab="intercept" , ylab="slope",
+     pch=16 , col=rangi2, xlim=c(-2.5, 2.5), ylim=c(-0.5, 0.5))
+
+Mu_est <- c(mean(post$a_subject), mean(post$b_subject) )
+rho_est <- mean(post$Rho[,1,2])
+sa_est <- mean(post$sigma_subject[,1])
+sb_est <- mean(post$sigma_subject[,2])
+cov_ab <- sa_est*sb_est*rho_est
+Sigma_est <- matrix(c(sa_est^2,cov_ab,cov_ab,sb_est^2) , ncol=2)
+
+for (l in c(0.1,0.3,0.5,0.8,0.99)) {
+  lines(ellipse(Sigma_est,centre=Mu_est,level=l), col=col.alpha("black",0.2))
+}
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13h3.png]]
+
+** 13H4
+#+BEGIN_SRC R :results output graphics :file 13h4.png
+library(MASS)
+
+N_boys <- 100
+params <- mvrnorm(N_boys, Mu_est, Sigma_est)
+
+age.seq <- seq(from=-10, 10, by=0.1 )
+
+plot(1, 1,
+     xlim=c(-10,10),
+     ylim=c(-10,10),
+     type='n')
+
+
+for (i in 1:N_boys){
+    intercept <- params[i, 1]
+    slope <- params[i, 2]
+    height <- intercept + age.seq*slope
+    lines(age.seq, height, col=col.alpha('blue'),
+          xlab='age', ylab='height')}
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:13h4.png]]

@@ -1,0 +1,987 @@
+#+AUTHOR: Melvin Wevers
+#+TITLE: Chapter 6. Overfitting, Regularization, and Information Criteria
+#+PROPERTY: header-args :session :results value :cache no :exports both
+
+#+BEGIN_SRC R
+library(rethinking)
+#+END_SRC
+
+#+RESULTS:
+| rethinking  |
+| parallel    |
+| rstan       |
+| StanHeaders |
+| ggplot2     |
+| stats       |
+| graphics    |
+| grDevices   |
+| utils       |
+| datasets    |
+| methods     |
+| base        |
+
+Scholars often prefer simpler theories. *Ockham's Razor*: Models with fewer assumptions
+are to be preferred. It's unprincipled. 
+
+Simpler is not always better. 
+
+How to manage trade off between fit and prediction? 
+
+How are we to trade different criteria against each other?
+
+Two fundamental kinds of statistical error:
+
+1. *Overfitting*, which leads to poor prediction by learning too much from the
+   data. Encoding/Encrypted the sample into the model. 
+2. *Underfitting*, which leads to poor prediction by learning too little from the data
+
+/Stargazing/: using asterisks (p < 0.05) to decide which variables improve prediction. 
+
+There are two families of approaches of dealing with these errors.
+1. *Regularizing prior* to tell the model not to get too excited by the data. Non-Bayesian
+   > Penalized likelihood
+2. Use a scoring device, such as *information criteria*, to model the prediction task and
+   estimate predictive accuracy for some purpose. 
+
+We want the *regular* features of the sample
+Strategies: cross-validation, regularizing priors, information criteria, iterative group
+learning
+
+Proper approach depends upon purpose. 
+
+* 6.1. The problem with parameters
+
+Adding variables improves the fit of the model > R^2 is a common measure for fit. 
+While complex models fit the data better, they often predict new data worse.
+
+** 6.1.1. More parameters always improve fit. 
+
+#+BEGIN_SRC R :results output
+sppnames <- c( "afarensis","africanus","habilis","boisei",
+    "rudolfensis","ergaster","sapiens")
+brainvolcc <- c( 438 , 452 , 612, 521, 752, 871, 1350 )
+masskg <- c( 37.0 , 35.5 , 34.5 , 41.5 , 55.5 , 61.0 , 53.5 )
+d <- data.frame( species=sppnames , brain=brainvolcc , mass=masskg )
+
+m6.1 <- lm(brain ~ mass, data=d)
+1 - var(resid(m6.1))/var(d$brain)
+#+END_SRC
+
+#+RESULTS:
+: 
+: [1] 0.490158
+
+1. Adding parameters nearly always improves the fit of a model to the data. 
+R^2 is a common measure for fitness. 
+2. more complex models fit the data better, they often predict new data
+   worse. *overfitting*
+
+** 6.1.1. More parameters always improve fit
+
+*Overfitting* occurs when a model learns too much from the sample. 
+/regular/ and /irregular/ features. 
+
+#+BEGIN_SRC R :results output
+
+sppnames <- c( "afarensis","africanus","habilis","boisei",
+    "rudolfensis","ergaster","sapiens")
+brainvolcc <- c( 438 , 452 , 612, 521, 752, 871, 1350 )
+masskg <- c( 37.0 , 35.5 , 34.5 , 41.5 , 55.5 , 61.0 , 53.5 )
+d <- data.frame( species=sppnames , brain=brainvolcc , mass=masskg)
+
+m6.1 <- lm(brain ~ mass, data=d)
+
+1 - var(resid(m6.1)) / var(d$brain)
+#+END_SRC
+
+#+RESULTS:
+: 
+: [1] 0.490158
+
+** 6.1.2. Too few parameters hurts, too
+
+*Underfitting* produces models that are inaccurate both within and out of sample. They
+ failed to recover regular features from the sample. 
+
+* 6.2. Information theory and model performance
+
+What's a good target? How do you measure this?
+
+Need a way to measure distance of a model from truth
+
+How do you choose between over and underfitting? Pick a criterion of /model performance/.
+Information theory provides a common and useful target, the out-of-sample /deviance/.
+
+1. Joint probability is the right way to judge model accuracy
+2. establish a measurement scale for distance from perfect accuracy
+3. establish /deviance/ as an approximation of relative distance from perfect accuracy
+4. establish that it is only deviance out-of-sample that is of interest. 
+
+** 6.2.1. Firing the weatherperson
+
+Defining a target, there are two major dimensions to worry about:
+1. *cost-benefit analysis*, how much does it cost when we're wrong? How much do we win
+   when we are right?
+2. *Accuracy in context*. Judge accuracy that accounts for how much a model could possibly
+   improve prediction. 
+
+Joint probability appears in Bayes' theorem as the likelihood. Maximizing joint
+probability will identify the right model. 
+
+** 6.2.2. Information and uncertainty
+Information: The reduction in uncertainty derived from learning an outcome. 
+
+Properties that a measure of uncertainty shouuld posses:
+
+1. The measure of uncertainty should be continuous
+2. the measure of uncertainty should increase as the number of possible events increases. 
+3. the measure of uncertainty should be additive. 
+
+One function statisfies these properties: *information entropy*
+
+Uncertainty in a probability distribution is average (minus) log-probability of an event. 
+
+Measuring relative differences in divergence between models. 
+
+#+BEGIN_SRC R :results output
+p <- c(0.3, 0.7)
+-sum(p*log(p))
+#+END_SRC
+#+RESULTS:
+: 
+: [1] 0.6108643
+
+*Maximum Entropy* > given what we know, what is the /least suprising/ distribution.
+the one answer to the question maximizes the information entropy using the prior knowledge
+as constraint. 
+
+** 6.2.3. From entropy to accuracy
+*Divergence* The additional uncertainty induced by using probabilities from one
+ distribution to describe another distribution. 
+
+Kullback-Leibler divergence
+
+Divergence can help us contrast different approximations to $p$. 
+
+** 6.2.4. From divergence to deviance
+All we need to know is a model's average log-probability:
+$E log(q_i)$ and $ E log(r_i)$
+
+To approximate the relative value of $E log(q_i)$ we can use a mode's $deviance$, which is
+defined as: 
+$D(q) = -2\sum_i log(q_i)$
+
+#+BEGIN_SRC R :results output
+                                        # fit model with lm
+m6.1 <- lm(brain ~ mass, d)
+                                    # copute deviance
+(-2) * logLik(m6.1)
+#+END_SRC
+
+#+RESULTS:
+: 
+: 'log Lik.' 94.92499 (df=3)
+
+** 6.2.5. From deviance to out-of-sample
+
+Deviance is a principled way to measure distance from the target. 
+Deviance is an assessment of predictive accuracy, not of truth.
+
+Calculate the sensitivity of the model. 
+
+* 6.3. Regularization
+One way to prevent a model from getting too excited by the training example is to give it
+a skeptical prior > a prior that slows the rate of learning from the sample. 
+
+Most skeptical prior is a *regularizing prior*, which is applied to a beta-coefficient, a
+slope in the linear model. 
+
+Prior \beta ~ Normal(0,1) > a change of 1 sd in x is very unlikely to produce 2 units of
+change in the outcome (only 5% plausability)
+
+The training deviance always increases---gets worse---with tighter priors > the skeptical
+prior precents the model from adapting completely to the model. 
+
+AS the prior gets more skeptical, the harm done by an overly complex model is greatly
+reduced. If you can tune the regularizing prior right, then overfitting can be greatly
+reduced. 
+
+REgularizing priors reduce overfitting but if they are too skeptical they prevent the
+model from learning from the data. Use cross-validation to check different priors. 
+
+Best is to have a way to predict a model's out-of-sample deviance, to forecast its
+predictive accuracy, using only the sample at hand. 
+
+* 6.4. Information Criteria
+- Guard against overfitting and underfitting
+- explicitly compare models
+
+the most known information criterion is the *Akaike Information Criterion (AIC)*. 
+Estimate of the average out-of-sample deviation:
+
+$AIC = D_train + 2p$
+
+AIC provides an approximation of predictive accuracy, as measured by out-of-sample
+deviance.
+
+AIC is an approximation that is reliable only when:
+1. The priors are flat or overwhelmed by the likelihood
+2. The posterior distribution is approximately multivariate Gaussian
+3. The sample size $N$ is much greater than the number of parameters $k$. 
+
+Since flat priors are hardly ever the best prior, we need some more general methods. 
+*Deviance Information Criterion (DIC)* accomodates informative priors, but still assumes
+that the posterior is multivariate Gaussian and that $N >> k$. 
+
+*Widely Applicable Information Criterion (WAIC)* is more general making no assumption
+ about the shape of the posterior. 
+
+** 6.4.1. DIC 
+If parameter in the posterior is very skewed, DIC as AIC can go very wrong.
+
+$D$ as the posterior /distribution/ of deviance
+$\bar{D}$ the average of $D$
+
+$\tilde{D}$ is the deviance calculated at the posterior mean. 
+Compute the average of each parameter in the posterior distribution. Then we plug those
+averages into the deviance formula to get \tilde{D} out. 
+
+DIC = \bar{D} + (\bar{D} - \title{D}) = \bar{D} + $p_D$
+
+The difference \bar{D} - \title{D} = $p_D$ is analogous to computing the number of
+parameters in AIC. This therefore called the /penalty term/.
+
+** 6.4.2. WAIC
+WAIC is also calculated by taking averages of log-likelihood over the posterior
+distribution. Also an estimate of out-of-sample deviance.
+However, it does not require a multivariate Guassian posterior, and it is often more
+accurate than DIC. 
+
+Distinguishing feature of WAIC is that it is /pointwise/. WAIC is handling uncertainty for
+each independent observation. It assesses flexiblity of a model with respect to fitting
+each observation, and them sums p across all observations. 
+
+Pr(y_i) as the average likelihood of observation $i$ in the training sample. 
+We compute the likelihood of y_i for each set of parameters sampled from the posterior
+distribution. Then we average the likelihoods for each observation $i$ and finally sum
+over all observations. This is the first part of WAIC, the
+log-pointwise-predictive-density, *lppd*:
+
+$lppd = \sum_{i=1}^{N} log Pr(y_i)$
+
+The log-pointwise-predictive-density is the total across observations of the logarithm of
+the average likelihood of each observation. 
+
+The second piece of WAIC is the effective number of parameters $p_WAIC$. 
+
+$V(y_i)$ as the variance in log-likelihood for observation $i$ in the training sample. 
+We compute the log-likelihood of $y_i$ for each sample from the posterior
+distribution. Then we take the variance of those values. This is $V(y_i)$.
+
+$p_WAIC = \sum_{i=1}^{N} V(y_i)$
+
+WAIC is defined assesses
+
+$ WAIC = -2(lppd - p_WAIC)$
+
+For WAIC we need independent observations, this can be difficult in time series, where
+previous observations are dependent on earlier ones. 
+
+#+BEGIN_SRC R :results output
+
+#WAIC calculations
+
+data(cars)
+
+m <- map(
+    alist(
+        dist~ dnorm(mu, sigma),
+        mu <- a + b * speed,
+        a ~ dnorm(0,100),
+        b ~ dnorm(0, 10),
+        sigma ~ dunif(0,30)
+    ), data=cars)
+post <- extract.samples(m, n=1000)
+
+#log-likelihood of each observation i at each sample s from the posterior
+n_samples <- 1000
+ll <- sapply(1:n_samples,
+             function(s) {
+                 mu <- post$a[s] + post$b[s]*cars$speed
+                 dnorm(cars$dist, mu, post$sigma[s], log=TRUE)})
+
+n_cases <- nrow(cars)
+lppd <- sapply(1:n_cases, function(i) log_sum_exp(ll[i,]) - log(n_samples))
+
+pWAIC <- sapply(1:n_cases, function(i) var(ll[i,]))
+
+                                        #WAIC
+-2*(sum(lppd) - sum(pWAIC))
+#+END_SRC
+
+#+RESULTS:
+: 
+: [1] 420.6256
+
+** 6.4.3. DIC and WAIC as estimates of deviance. 
+Using both regularization and information criteria will always beat using only or or the
+other alone. Regularization, as long as it's not too strong, reduces overfitting for any
+particular model. 
+Information criteria instead help us measure overfitting across models fit to the same
+data. 
+They are *complementary* functions. 
+
+* 6.5. Using information criteria
+  :LOGBOOK:
+  CLOCK: [2019-03-08 Fri 09:49]--[2019-03-08 Fri 10:14] =>  0:25
+  :END:
+
+How do we use these values?
+
+*Model selection* > choosing the model with the lowest AIC/DIC/WAIC value and then
+discarding the others. This overlooks differences between information criteria. 
+
+Other options are *model comparison* and *model averaging*. 
+
+*Model comparison* using DIC/WAIC in combination with the estimates and posterior
+predictive checks from each model. 
+
+*Model averaging* using DIC/WAIC to construct a posterior predictive distribution that
+exploits what we know about relative accuracy of the models. > actually this is prediction
+averaging. 
+
+** 6.5.1. Model comparison. 
+   :LOGBOOK:
+   CLOCK: [2019-03-08 Fri 10:21]--[2019-03-08 Fri 10:46] =>  0:25
+   :END:
+
+Compared models must be fit to exactly the same observations.
+
+#+BEGIN_SRC R :results output
+
+data(milk)
+d <- milk[complete.cases(milk), ]
+d$neocortex <- d$neocortex.perc / 100
+dim(d)
+
+#+END_SRC
+
+#+RESULTS:
+: 
+: [1] 17  9
+
+#+BEGIN_SRC R
+a.start <- mean(d$kcal.per.g)
+sigma.start <- log(sd(d$kcal.per.g))
+
+
+m6.11 <- map(
+    alist(
+        kcal.per.g ~ dnorm(a, exp(log.sigma))
+    ),
+    data=d, start=list(a=a.start, log.sigma=sigma.start))
+
+
+m6.12 <- map(
+    alist(
+        kcal.per.g ~ dnorm(mu, exp(log.sigma)),
+        mu <- a + bn*neocortex
+    ),
+    data=d, start=list(a=a.start, bn=0, log.sigma=sigma.start))
+
+
+m6.13 <- map(
+    alist(
+        kcal.per.g ~ dnorm(mu, exp(log.sigma)),
+        mu <- a + bm*log(mass)
+    ),
+    data=d, start=list(a=a.start, bm=0, log.sigma=sigma.start))
+
+
+m6.14 <- map(
+    alist(
+        kcal.per.g ~ dnorm(mu, exp(log.sigma)),
+        mu <- a + bn*neocortex + bm*log(mass)
+    ),
+    data=d, start=list(a=a.start, bn=0, bm=0, log.sigma=sigma.start))
+
+#+END_SRC
+
+#+RESULTS:
+
+The standard error provides rough guidance to the uncertainty in WAIC that arises from
+sampling. 
+
+Ordering models by their WAIC values. 
+
+#+BEGIN_SRC R :results output
+(milk.models <- compare(m6.11, m6.12, m6.13, m6.14))
+#+END_SRC
+
+#+RESULTS:
+:        WAIC pWAIC dWAIC weight   SE  dSE
+: m6.14 -14.6   5.1   0.0   0.91 7.78   NA
+: m6.11  -8.5   1.7   6.0   0.04 4.51 7.47
+: m6.13  -7.7   3.1   6.8   0.03 5.65 5.47
+: m6.12  -6.2   2.9   8.3   0.01 4.29 7.78
+
+- Smaller WAIC indicates better estimated out-of-sample deviance 
+- pWAIC is the estimated effective number of parameters. How flexible each model is in
+  fitting the sample.
+- dWAIC is the difference between each WAIC and the lowest WAIC. This shows the
+  differences in relative fashion.
+- weight is the AKAIKE weight
+- SE is the standard error of the WAIC estimate. It provides a check against
+  overconfidence between WAIC values.
+- dSE is the standard error of the differences in WAIC between each model and the
+  top-ranked model. 
+
+#+BEGIN_SRC R :results output graphics :file 6.25.png
+plot(milk.models, SE=TRUE, dSE=TRUE)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:6.25.png]]
+
+*Akaike* a model's weight is an estimate of the probability that the model will make the
+ best predictions on new data, conditional on the set of models considered. 
+
+Regard WAIC as the expected deviance of a model on future data. Akaike weights are
+analogous to posterior probabilities of models, conditional on expected future data. 
+
+** 6.5.1.2 Comparing estimates. 
+In addition to comparing models on the basis of expected test deviance, it is nearly
+always useful to compare parameter estimated among models. 
+1. it is useful to understand why a particular model or models have lower WAIC values. 
+2. regardless of WAIC values, we often want to know whether some parameter's posterior
+   distribution is stable across models. 
+
+#+BEGIN_SRC R :results output graphics :file 6.28.png
+
+plot(coeftab(m6.11,m6.12,m6.13,m6.14))
+
+#+END_SRC
+
+#+RESULTS:
+[[file:6.28.png]]
+
+** 6.5.2. Model Averaging.
+Simulate and plot counterfactual predictions for the minimum-WAIC model, m6.14
+
+#+BEGIN_SRC R :results output graphics :file 6.29.png
+
+#neocortex from .5 to .8
+nc.seq <- seq(from=.5, to=.8, length.out = 30)
+d.predict <- list(
+    kcal.per.g = rep(0,30), # empty outcome
+    neocortex = nc.seq, # sequence of neocortex
+    mass = rep(4.5, 30) # average mass
+)
+
+pred.m6.14 <- link(m6.14, data=d.predict)
+mu <- apply(pred.m6.14, 2, mean)
+mu.PI <- apply(pred.m6.14, 2, PI)
+
+plot(kcal.per.g ~ neocortex, d, col=rangi2)
+lines(nc.seq, mu, lty=2)
+lines(nc.seq, mu.PI[1,], lty=2)
+lines(nc.seq, mu.PI[2,], lty=2)
+#+END_SRC
+
+#+RESULTS:
+[[file:6.29.png]]
+
+Compute and add model averaged posterior predictions by computing an *ensemble* of
+posterior predictions. 
+
+1. Compute WAIC for each model
+2. Compute the weight for each model
+3. Compute linear model and simulated outcomes for each model
+4. Combine these values into an ensemble of predictions, using the model weights as
+   proportions. 
+
+#+BEGIN_SRC R :results output graphics :file 6.30.png
+milk.ensemble <- ensemble(m6.11, m6.12, m6.13, m6.14, data=d.predict)
+mu <- apply(milk.ensemble$link, 2, mean)
+mu.PI <- apply(milk.ensemble$link, 2, PI)
+lines(nc.seq, mu)
+shade(mu.PI, nc.seq)
+#+END_SRC
+
+#+RESULTS:
+[[file:6.30.png]]
+
+* Practice
+
+** 6e1 
+
+1. Data has to be continuous
+2. The measure of uncertainty should increase as events are added
+3. The measure should be additive 
+
+** 6E2
+#+BEGIN_SRC R
+p <- c(0.7, 0.3)
+-sum(p*log(p))
+
+#+END_SRC
+
+#+RESULTS:
+: 0.610864302054894
+
+** 6E3
+#+BEGIN_SRC R
+#6e3
+p <- c(0.2, 0.25, 0.25, 0.30)
+-sum(p*log(p))
+
+#+END_SRC
+
+#+RESULTS:
+: 1.37622660434455
+
+** 6E4
+#+BEGIN_SRC R
+#6e4
+p <- c(1/3, 1/3, 1/3)
+-sum(p*log(p))
+#+END_SRC
+
+#+RESULTS:
+: 1.09861228866811
+
+** 6M1
+*AIC* = $D_train + 2p$
+
+You need flat priors
+Posterior needs to be a multivariate Gaussian
+Sample size N >> K
+
+*DIC* 
+Also works with informative priors
+$\bar{D} = (\bar{D} - \tilde{D}) = \bar{D} + P_d$
+
+*WAIC* 
+Most general model, uses pointwise.
+You calculate LPPD = \sum_{i=1}^{N} log Pr(Y_i) (The latter is average likelihood)
+
+P_waic \sum_{i=1}^{N} * V(y_i)
+
+WAIC = -2(lppd - P_waic)
+
+They all include in-sample training deviance and indicator for free parameters
+
+** 6M2
+*Model selection* - chosing the model with the lowest AIC/DIC/WAIC values. 
+We lose relative model accuracy stored in each model. 
+
+*Model averaging* - using DIC/WAIC to construct a posterior predictive distrubtion that
+shows uncertainty between models. Prediction averaging. 
+
+** 6M3
+Models must be fit to same number of observations. 
+Models are fit to different cases, which makes comparison difficult. 
+The model with fewer observations will always have better deviance and AIC/DIC/WAIC values
+> it has to predict less. 
+
+*What would happen to the information criterion values if the models were fit to different
+numbers of observations*
+
+#+BEGIN_SRC R :results output
+data(cars)
+d <- cars
+nrow(d)
+
+d_10 <- d[sample(1:nrow(d), size = 10, replace = FALSE), ]
+d_30 <- d[sample(1:nrow(d), size = 30, replace = FALSE), ]
+
+m_10 <- map(
+  alist(
+    dist ~ dnorm(mu,sigma),
+    mu <- a + b * speed,
+    a ~ dnorm(0, 100),
+    b ~ dnorm(0,10),
+    sigma ~ dunif(0,30)
+  ), data=d_10,
+  start = list(a = mean(d_10$dist), b = 0, sigma = sd(d_10$dist))
+)
+  
+m_30 <- map(
+    alist(
+      dist ~ dnorm(mu,sigma),
+      mu <- a + b * speed,
+      a ~ dnorm(0, 100),
+      b ~ dnorm(0,10),
+      sigma ~ dunif(0,30)
+    ), data=d_30,
+    start = list(a = mean(d_30$dist), b = 0, sigma = sd(d_30$dist))
+)
+
+(car.models <- compare(m_10, m_30))
+car.models
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+[1] 50
+
+Caution, model may not have converged.
+Code 1: Maximum iterations reached.
+
+      WAIC pWAIC dWAIC weight    SE   dSE
+m_10 124.6  20.5   0.0      1 26.60    NA
+m_30 260.1   4.7 135.5      0 12.23 25.72
+Warning message:
+In compare(m_10, m_30) :
+  Different numbers of observations found for at least two models.
+Information criteria only valid for comparing models fit to exactly same observations.
+Number of observations for each model:
+m_10 10 
+m_30 30
+
+      WAIC pWAIC dWAIC weight    SE   dSE
+m_10 124.6  20.5   0.0      1 26.60    NA
+m_30 260.1   4.7 135.5      0 12.23 25.72
+#+end_example
+
+WAIC is larger for model with more observations. 
+
+** 6M4
+*what happens to the effective number of parameters (DIC/WAIC) as a prior becomes more concentrated. Why?**
+Model becomes less flexible thus Pd decreases in DIC. 
+Also with more constrained priors the variance decreases and thus Pwaic will also decrease. 
+
+#+BEGIN_SRC R
+data(cars)
+d <- cars
+nrow(d)
+
+d$speed.log <- log(d$speed)
+d$speed.log.z <- (d$speed.log - mean(d$speed.log)) / sd(d$speed.log)
+d$dist.log <- log(d$dist)
+d$dist.log.z <- (d$dist.log - mean(d$dist.log)) / sd(d$dist.log)
+
+m_p_relax <- map(
+  alist(
+    dist.log.z ~ dnorm(mu,sigma),
+    mu <- a + b * speed.log.z,
+    a ~ dnorm(0, 100),
+    b ~ dnorm(0,20),
+    sigma ~ dunif(0,30)
+  ), data=d,
+)
+
+m_p_strict <- map(
+  alist(
+    dist.log.z ~ dnorm(mu,sigma),
+    mu <- a + b * speed.log.z,
+    a ~ dnorm(0, 100),
+    b ~ dnorm(0,.5),
+    sigma ~ dunif(0,30)
+  ), data=d,
+)
+
+WAIC(m_p_relax)
+
+WAIC(m_p_strict)
+
+#+END_SRC
+
+pWAIC is lower for strict prior. 
+#check with Folgert negative values. 
+
+** 6m5
+
+Informative priors make the model less flexible. 
+The model has more dificulty learning from the training data and has more difficulty to overfitting.
+
+** 6M6
+If the prior is too constrained, the model cannot learn any regularizing features from the training data. 
+
+** 6H1
+
+#+BEGIN_SRC R :results output
+data(Howell1)
+d <- Howell1
+d$age <- (d$age - mean(d$age)) / sd(d$age)
+set.seed(1000)
+i <- sample(1:nrow(d), size=nrow(d)/2)
+d1 <- d[i,]
+d2 <- d[-i,]
+
+
+m_1 <- map(
+  alist(
+    height ~ dnorm(mu,sigma),
+    mu <- a + b1 * age,
+    a ~ dnorm(140, 30),
+    b1 ~ dnorm(0, 10),
+    sigma ~ dunif(0 ,50)
+  ), data=d1,
+)
+
+m_2 <- map(
+  alist(
+    height ~ dnorm(mu,sigma),
+    mu <- a + b1 * age + b2*I(age^2),
+    a ~ dnorm(140, 50),
+    c(b1, b2) ~ dnorm(0, 10),
+    sigma ~ dunif(0,50)
+  ), data=d1,
+)
+
+m_3 <- map(
+  alist(
+    height ~ dnorm(mu,sigma),
+    mu <- a + b1 * age + b2*I(age^2) + b3*I(age^3),
+    a ~ dnorm(140, 30),
+    c(b1, b2, b3) ~ dnorm(0, 10),
+    sigma ~ dunif(0,50)
+  ), data=d1,
+)
+
+m_4 <- map(
+  alist(
+    height ~ dnorm(mu,sigma),
+    mu <- a + b1 * age + b2*I(age^2) + b3*I(age^3) + b4*I(age^4),
+    a ~ dnorm(140, 30),
+    c(b1, b2, b3, b4) ~ dnorm(0, 10),
+    sigma ~ dunif(0,50)
+  ), data=d1,
+)
+m_5 <- map(
+  alist(
+    height ~ dnorm(mu,sigma),
+    mu <- a + b1 * age + b2*I(age^2) + b3*I(age^3) + b4*I(age^4) + b5*I(age^5),
+    a ~ dnorm(140, 30),
+    c(b1, b2, b3, b4, b5) ~ dnorm(0, 10),
+    sigma ~ dunif(0,50)
+  ), data=d1,
+)
+
+m_6 <- map(
+  alist(
+    height ~ dnorm(mu,sigma),
+    mu <- a + b1 * age + b2*I(age^2) + b3*I(age^3) + b4*I(age^4) + b5*I(age^5) + b6*I(age^6),
+    a ~ dnorm(140, 30),
+    c(b1, b2, b3, b4, b5, b6) ~ dnorm(0, 10),
+    sigma ~ dunif(0,50)
+  ), data=d1,
+)
+
+compare(m_1, m_2, m_3, m_4, m_5, m_6)
+
+#+END_SRC
+
+#+RESULTS:
+: 
+:       WAIC pWAIC dWAIC weight    SE   dSE
+: m_4 1926.0   5.6   0.0   0.57 25.44    NA
+: m_5 1927.5   6.3   1.5   0.27 25.38  0.37
+: m_6 1928.5   7.4   2.5   0.16 25.19  1.66
+: m_3 1952.3   5.4  26.3   0.00 24.19 11.00
+: m_2 2149.8   5.1 223.8   0.00 22.72 26.67
+: m_1 2395.4   3.4 469.4   0.00 23.14 31.01
+
+** 6H2
+#+BEGIN_SRC R :results output graphics :file 6h2.png
+age.seq <- seq(min(d1$age), max(d1$age), length.out=50)
+pred.data <- data.frame(age=age.seq)
+
+mu <- link(m_1, pred.data)
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI, prob=.97)
+
+  
+plot(weight ~ age, d1, col=rangi2)
+lines(x = pred.data$age, y= mu.mean)
+shade(mu.PI, pred.data$age)
+
+plotModels <- function(model, prediction, raw) {
+  mu <- link(model, prediction)
+  mu.mean <- apply(mu, 2, mean)
+  mu.PI <- apply(mu, 2, PI, prob=.97)
+  
+  plot(height ~ age, d1, col=rangi2)
+  lines(pred.data$age, mu.mean)
+  shade(mu.PI, pred.data$age)
+  
+}
+
+for (m in c(m_1, m_2, m_3, m_4, m_5, m_6)){
+  plotModels(m, pred.data, d1)
+}
+#+END_SRC
+
+#+RESULTS:
+[[file:6h2.png]]
+
+** 6H3
+*now also plot the model averageed predictions.* 
+
+#+BEGIN_SRC R :results output graphics :file 6h3.png
+height.ensemble <- ensemble(m_1, m_2, m_3, m_4, m_5, m_6, data=pred.data)
+mu <- apply(height.ensemble$link, 2, mean)
+mu.PI <- apply(height.ensemble$link, 2, PI)
+plot(weight ~ age, d1, col=rangi2)
+lines(pred.data$age, mu)
+shade(mu.PI, pred.data$age)
+#+END_SRC
+
+#+RESULTS:
+[[file:6h3.png]]
+
+This is very similar to model, 4, 5, and 6. Models with lowest WAIC. 
+
+** 6H4
+
+#+BEGIN_SRC R  
+theta <- coef(m_1)
+-2 * sum(dnorm(d2$height, theta[1] + theta[2]*d2$age, theta[3], log=TRUE))
+#+END_SRC
+#+RESULTS:
+: 2422.30940475324
+
+#+BEGIN_SRC R
+theta <- coef(m_2)
+-2 * sum(dnorm(d2$height, theta[1] +
+                          theta[2]*d2$age +
+                          theta[3]*d2$age^2,
+               theta[4], log=TRUE))
+#+END_SRC
+#+RESULTS:
+: 2138.063200022
+
+#+BEGIN_SRC R
+
+theta <- coef(m_3)
+-2 * sum(dnorm(d2$height, theta[1] +
+                          theta[2]*d2$age +
+                          theta[3]*d2$age^2 +
+                          theta[4]*d2$age^3,
+               theta[4], log=TRUE))
+#+END_SRC
+
+#+RESULTS:
+: 1933.54468910697
+
+#+BEGIN_SRC R
+
+theta <- coef(m_4)
+deviance_m4 <- -2 * sum(dnorm(d2$height, theta[1] +
+                          theta[2]*d2$age +
+                          theta[3]*d2$age^2 +
+                          theta[4]*d2$age^3 +
+                          theta[5]*d2$age^4,
+               theta[6], log=TRUE))
+#+END_SRC
+
+#+RESULTS:
+: 1876.24693810026
+
+#+BEGIN_SRC R
+
+theta <- coef(m_5)
+-2 * sum(dnorm(d2$height, theta[1] +
+                          theta[2]*d2$age +
+                          theta[3]*d2$age^2 +
+                          theta[4]*d2$age^3 +
+                          theta[5]*d2$age^4 +
+                          theta[6]*d2$age^5,
+               theta[7], log=TRUE))
+
+#+END_SRC
+
+#+RESULTS:
+: 1876.58812974467
+
+#+BEGIN_SRC R
+
+theta <- coef(m_6)
+
+-2 * sum(dnorm(d2$height, theta[1] +
+                          theta[2]*d2$age +
+                          theta[3]*d2$age^2 +
+                          theta[4]*d2$age^3 +
+                          theta[5]*d2$age^4 +
+                          theta[6]*d2$age^5 +
+                          theta[7]*d2$age^6,
+               theta[8], log=TRUE))
+
+#+END_SRC
+
+#+RESULTS:
+: 1875.83383048546
+
+best model WAIC m4, then m5, then m6
+for deviance 6 lowest, than 4, and then 5. 
+
+** 6H6
+#+BEGIN_SRC R :results output
+
+m_6h6 <- map(
+    alist(
+        height ~ dnorm(mu, sigma),
+        mu <- a + b1 * age + b2*I(age^2) + b3*I(age^3) + b4*I(age^4) + b5*I(age^5) + b6*I(age^6),
+        a <- dunif(50, 200),
+        c(b1, b2, b3, b4, b5, b6) ~ dnorm(0,5),
+        sigma ~ dunif(0, 50)
+    ), data=d1
+)
+
+precis(m_6h6)
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+        Mean StdDev   5.5%  94.5%
+a     155.86   0.88 154.46 157.26
+b1      5.97   1.81   3.08   8.86
+b2    -16.60   2.13 -20.01 -13.20
+b3     12.09   2.72   7.75  16.44
+b4     -3.51   1.16  -5.37  -1.65
+b5      0.23   1.04  -1.43   1.89
+b6      0.05   0.33  -0.48   0.58
+sigma   8.20   0.36   7.63   8.77
+#+end_example
+
+#+BEGIN_SRC R :results output graphics :file 6h6.png
+plotModels(m_6h6, pred.data, d1)
+#+END_SRC
+
+#+RESULTS:
+[[file:6h6.png]]
+
+#+BEGIN_SRC R :results output
+theta <- coef(m_6h6)
+
+deviance_m6h6 <- -2 * sum(dnorm(d2$height, theta[1] +
+                          theta[2]*d2$age +
+                          theta[3]*d2$age^2 +
+                          theta[4]*d2$age^3 +
+                          theta[5]*d2$age^4 +
+                          theta[6]*d2$age^5 +
+                          theta[7]*d2$age^6,
+               theta[8], log=TRUE))
+
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R
+deviance_m6h6 - deviance_m4
+
+#+END_SRC
+
+#+RESULTS:
+: -0.813334933105352
+
+The out-of-sample deviance in m_6h6 (with regularizing priors) is lower than in M4. 
+This model has more coefficients but is closer to m4 than m6. Restricting overfitting in
+this case. 

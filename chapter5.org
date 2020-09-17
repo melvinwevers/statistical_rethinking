@@ -1,0 +1,1501 @@
+#+TITLE: Chapter 5: Multivariate Linear Models
+#+AUTHOR: Melvin Wevers
+#+PROPERTY: header-args :session :results value :cache no :exports both
+
+#+BEGIN_SRC R
+library(rethinking)
+#+END_SRC
+
+#+RESULTS:
+| rethinking  |
+| parallel    |
+| rstan       |
+| StanHeaders |
+| ggplot2     |
+| stats       |
+| graphics    |
+| grDevices   |
+| utils       |
+| datasets    |
+| methods     |
+| base        |
+
+* Introduction
+
+In large data sets, every pair of variables has a statistically discerible non-zero
+correlation. 
+
+We need tools for distuingishing mere association from evidence of causation. 
+
+*multivariate regression* uses more than one predictor varaible to model an outcome. 
+
+Why use MV regression: 
+
+1. Statistical control for confounds.
+2. Multiple causation. 
+3. Interactions. 
+
+Focus on:
+1. revealing /spurious/ correlations
+2. revealing important correlations that may be /masked/ by unrevealed correlations with
+   other variables. 
+
+Multiple predictor variables can also hurt > multicollinearity 
+
+Causal inference always depends upon unverifiable assumptions. 
+
+* 5.1. Spurious association
+
+#+BEGIN_SRC R :results out graphics :file 5.1.png
+
+library(rethinking)
+data(WaffleDivorce)
+d <- WaffleDivorce
+
+#standardize predictor
+d$MedianAgeMarriage.s <- (d$MedianAgeMarriage - mean(d$MedianAgeMarriage)) /
+    sd(d$MedianAgeMarriage)
+
+# fit model 
+m5.1 <- map(
+    alist(
+        Divorce ~ dnorm(mu, sigma),
+        mu <- a + bA * MedianAgeMarriage.s,
+        a ~ dnorm(10, 10),
+        bA ~ dnorm(0, 1),
+        sigma ~ dunif(0,10)
+    ), data= d)
+
+# compute percentile interval of mean 
+MAM.seq <- seq (from=-3, to=3.5, length.out=30)
+mu <- link(m5.1, data=data.frame(MedianAgeMarriage.s=MAM.seq))
+mu.PI <- apply(mu, 2, PI)
+
+#plot 
+plot(Divorce ~ MedianAgeMarriage.s, data=d, col=rangi2)
+abline(m5.1)
+shade(mu.PI, MAM.seq)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:5.1.png]]
+
+#+BEGIN_SRC R
+
+d$Marriage.s <- (d$Marriage - mean(d$Marriage))/sd(d$Marriage)
+m5.3 <- map(
+    alist(
+        Divorce ~ dnorm(mu, sigma),
+        mu <- a + bR * Marriage.s,
+        a ~ dnorm(10, 10),
+        bR ~ dnorm(0, 1),
+        sigma ~ dunif(0,10)
+     ) , data =d)
+
+#+END_SRC
+
+#+RESULTS:
+
+Comparing parameter means between different bivariate regressions is no way to decide
+which predictor is better. 
+
+Central question is:
+
+What is the predictive value of a variable, once I already know all of the other
+predictor variables?
+
+** 5.1.1. Multivariate notation. 
+
+Strategy:
+1. Nominate the predictor variables you want in the linear model of the mean
+2. For each predictor, make a parameter that will measure its association with the
+   outcome.
+3. Multiply the parameter by the variable and add that term to the linear model. 
+
+** 5.1.2. Fitting the model.
+#+BEGIN_SRC R 5.4 :results output graphics :file 5.5.png
+
+m5.4 <- map(
+    alist(
+        Divorce ~ dnorm(mu, sigma),
+        mu <- a + bR*Marriage.s + bA*MedianAgeMarriage.s,
+        a ~ dnorm(10, 10),
+        bR ~ dnorm(0, 10),
+        bA ~ dnorm(0, 1),
+        sigma ~ dunif(0, 10)
+    ),
+    data = d)
+
+precis(m5.4)
+
+plot(precis(m5.4))
+#+END_SRC
+
+#+RESULTS:
+[[file:5.5.png]]
+
+Once we know median age at marriage for a State, there is little or no additional
+predictive power in also knowing the rate of marriage in that State.
+
+** 5.1.3. Plotting multivariate posteriors.
+Three types of interpretive pliots for multivariate regressions. 
+
+1. /Predictor residual plots/. These plots show the outcome against /residual/ predictor
+   values.
+2. /Counterfactual plots/. These show the implied predictions for imaginary experiments in
+   which the different predictor variables can be changed independently of one another. 
+3. /Posterior prediction plots/. These show model-based predictions against raw data, or
+   otherwise display the error in prediction.
+
+*** 5.1.3.1. Predictor Residual plots
+
+A predictor residual is the average prediction error when we use all of the other
+predictor variables to model a predictor of interest. It leaves in the variation that is
+not expected by the model of the mean, /mu/, as a function of the other predictors. 
+
+#+BEGIN_SRC R :results output graphics :file 5.8.png
+
+m5.6 <- map(
+    alist(
+        Marriage.s ~ dnorm(mu, sigma),
+        mu <- a + b * MedianAgeMarriage.s,
+        a ~ dnorm(0, 10),
+        b ~ dnorm(0, 1),
+        sigma ~ dunif(0, 10)
+    ), data= d)
+
+# compute expected value at MAP, for each State
+mu <- coef(m5.6)['a'] + coef(m5.6)['b']*d$MedianAgeMarriage.s
+
+# compute residual for each State
+m.resid <- d$Marriage.s - mu
+
+plot(Marriage.s ~ MedianAgeMarriage.s, d, col=rangi2)
+abline(m5.6)
+
+# loop over States
+for (i in 1:length(m.resid)) {
+    x <- d$MedianAgeMarriage.s[i] # x location of line segment
+    y <- d$Marriage.s[i] # observed endpoint of line segment
+                                        # draw the line segment
+    lines(c(x,x), c(mu[i],y), lwd=0.5, col=col.alpha("black", 0.7))
+}
+
+#+END_SRC
+
+#+RESULTS:
+[[file:5.8.png]]
+
+What's the point of these plots?
+Seeing the model-based precictions displayed against the outcome, after subtracting out
+the influence of other predictors. 
+
+Predictor variables can also be related to each in other in non-additive ways. For this
+residual plots do not work very well.
+
+*** 5.1.3.2. Counterfactual plots 
+
+This plots the implied predictions of the model. You can ask the model for predictions for
+any values of the predictor variable. Simplest way is to only change one predictor at a
+time. 
+
+Plot showing the impact of changes in Marriage.s on predictions.
+
+#+BEGIN_SRC R :results output graphics :file 5.9.png
+
+A.avg <- mean(d$MedianAgeMarriage.s)
+R.seq <- seq(from=-3, to=3, length.out=30)
+pred.data <- data.frame(
+    Marriage.s=R.seq,
+    MedianAgeMarriage.s=A.avg)
+
+# computer counterfactual mean divorce (mu)
+
+mu <- link(m5.4, data=pred.data)
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI)
+
+# simulate counterfactual divorce outcomes
+R.sim <- sim(m5.4, data=pred.data, n=1e4)
+R.PI <- apply(R.sim, 2, PI)
+
+                                        #display predictions, hidding raw data
+plot(Divorce ~ Marriage.s, data=d, type="n")
+mtext("MedianAgeMarriage.s = 0")
+lines(R.seq, mu.mean)
+shade(mu.PI, R.seq)
+shade(R.PI, R.seq)
+#+END_SRC
+
+#+RESULTS:
+[[file:5.9.png]]
+
+
+#+BEGIN_SRC R :results output graphics :file 5.10.png
+
+
+R.avg <- mean(d$Marriage.s)
+A.seq <- seq(from=-3, to=3.5, length.out=30)
+pred.data <- data.frame(
+    Marriage.s=R.avg,
+    MedianAgeMarriage.s=A.seq)
+
+# computer counterfactual mean divorce (mu)
+
+mu <- link(m5.4, data=pred.data)
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI)
+
+# simulate counterfactual divorce outcomes
+A.sim <- sim(m5.4, data=pred.data, n=1e4)
+A.PI <- apply(A.sim, 2, PI)
+
+                                        #display predictions, hidding raw data
+plot(Divorce ~ MedianAgeMarriage.s, data=d, type="n")
+mtext("Marriage.s = 0")
+lines(A.seq, mu.mean)
+shade(mu.PI, A.seq)
+shade(A.PI, A.seq)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:5.10.png]]
+
+While these counterfactual plots always help in understanding the model, they may also
+mislead by displaying predictions for implossible combinations of predictor values. If our
+goal is to intervene in the world, there may not be any realistic way to manipulate each
+predictor without also manipulating the others. 
+
+*** 5.1.3.3. Posterior prediction plots
+In addition to understanding the estimates, it's important to check the model fit against
+the observed data. 
+1. Did the model fit correctly? This can be diagnosed by comparing implied predictions to
+   the raw data. 
+2. How does the model fail? By inspecting where the model fails you might get an idea of
+   hw to improve the model. 
+
+Simulate predictions, averaging over the posterior
+
+#+BEGIN_SRC R :results output graphics :file 5.12.png
+mu <- link(m5.4)
+
+#summarize samples across cases
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI)
+
+#simulate observations
+divorce.sim <- sim(m5.4, n=1e4)
+divorce.PI <- apply(divorce.sim, 2, PI)
+
+#plot 
+plot(mu.mean ~ d$Divorce, col=rangi2, ylim=range(mu.PI),
+     xlab='Observed divorce', ylab='Predicted Divorce')
+abline(a=0, b=1, lty=2)
+for (i in 1:nrow(d))
+    lines(rep(d$Divorce[i],2), c(mu.PI[1,i], mu.PI[2,i]),
+          col=rangi2)
+#+END_SRC
+
+#+RESULTS:
+[[file:5.12.png]]
+
+#+BEGIN_SRC R
+
+identify(x=d$Divorce, y=mu.mean, labels=d$Loc, cex=0.8)
+
+#+END_SRC
+
+#+RESULTS:
+: org_babel_R_eoe
+
+To compute residuals and display them:
+
+#+BEGIN_SRC R :results output graphics :file 5.14.png
+divorce.resid <- d$Divorce - mu.mean
+# get ordering by divorce rate
+o <- order(divorce.resid)
+
+dotchart(divorce.resid[o], labels=d$Loc[o], xlim=c(-6,5), cex=0.6)
+abline(v=0, col=col.alpha("black", 0.2))
+for ( i in 1:nrow(d) ) {
+    j <- o[i] # which State in order
+    lines( d$Divorce[j]-c(mu.PI[1,j],mu.PI[2,j]) , rep(i,2) )
+    points( d$Divorce[j]-c(divorce.PI[1,j],divorce.PI[2,j]) , rep(i,2),
+           pch=3, cex=0.6, col='gray')
+}
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:5.14.png]]
+
+* 5.2. Masked Relationship
+
+Multiple predictor variables are useful for knocking out spurious assocation.
+They can also measure the direct influences of multiple factors on an outcome, when none
+of those influences is apparent from bivariate relationships
+
+#+BEGIN_SRC R :results output
+library(rethinking)
+data(milk)
+d <- milk
+dcc <- d[complete.cases(d),]
+str(d)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+'data.frame':	29 obs. of  8 variables:
+ $ clade         : Factor w/ 4 levels "Ape","New World Monkey",..: 4 4 4 4 4 2 2 2 2 2 ...
+ $ species       : Factor w/ 29 levels "A palliata","Alouatta seniculus",..: 11 8 9 10 16 2 1 6 28 27 ...
+ $ kcal.per.g    : num  0.49 0.51 0.46 0.48 0.6 0.47 0.56 0.89 0.91 0.92 ...
+ $ perc.fat      : num  16.6 19.3 14.1 14.9 27.3 ...
+ $ perc.protein  : num  15.4 16.9 16.9 13.2 19.5 ...
+ $ perc.lactose  : num  68 63.8 69 71.9 53.2 ...
+ $ mass          : num  1.95 2.09 2.51 1.62 2.19 5.25 5.37 2.51 0.71 0.68 ...
+ $ neocortex.perc: num  55.2 NA NA NA NA ...
+#+end_example
+
+#+BEGIN_SRC R
+m5.5 <- map(
+    alist(
+        kcal.per.g ~ dnorm(mu, sigma),
+        mu <- a + bn*neocortex.perc,
+        a ~ dnorm(0, 100),
+        bn ~ dnorm(0, 1),
+        sigma ~ dunif(0, 1)
+    ), data=dcc)
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R :results output graphics :file 5.23.png
+np.seq <- 0:100
+pred.data <- data.frame(neocortex.perc=np.seq)
+
+mu <- link(m5.5, data=pred.data, n=1e4)
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI)
+
+plot(kcal.per.g ~ neocortex.perc, data=dcc, col=rangi2)
+lines(np.seq, mu.mean)
+lines(np.seq, mu.PI[1,], lty=2)
+lines(np.seq, mu.PI[2,], lty=2)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:5.23.png]]
+
+#+BEGIN_SRC R :results output
+dcc$log.mass <- log(dcc$mass)
+
+m5.6 <- map(
+    alist(
+        kcal.per.g ~ dnorm(mu, sigma),
+        mu <- a + bm * log.mass,
+        a ~ dnorm(0, 100),
+        bm ~ dnorm(0, 1),
+        sigma ~ dunif(0,1)
+    ), data=dcc)
+precis(m5.6)
+
+#+END_SRC
+
+#+RESULTS:
+: 
+:        Mean StdDev  5.5% 94.5%
+: a      0.71   0.05  0.63  0.78
+: bm    -0.03   0.02 -0.06  0.00
+: sigma  0.16   0.03  0.11  0.20
+
+#+BEGIN_SRC R :results output
+m5.7 <- map(
+    alist(
+        kcal.per.g ~ dnorm(mu, sigma),
+        mu <- a + bn*neocortex.perc + bm*log.mass,
+        a ~ dnorm(0, 100),
+        bn ~ dnorm(0, 1),
+        bm ~ dnorm(0, 1),
+        sigma ~ dunif(0,1)
+    ), data=dcc)
+
+precis(m5.7)
+
+#+END_SRC
+
+#+RESULTS:
+: 
+:        Mean StdDev  5.5% 94.5%
+: a     -1.08   0.47 -1.83 -0.34
+: bn     0.03   0.01  0.02  0.04
+: bm    -0.10   0.02 -0.13 -0.06
+: sigma  0.11   0.02  0.08  0.15
+
+#+BEGIN_SRC R :results output graphics :file 5.27.png
+
+mean.log.mass <- mean(log(dcc$mass))
+np.seq <- 0:100
+pred.data <- data.frame(
+    neocortex.perc=np.seq,
+    log.mass=mean.log.mass
+)
+
+mu <- link(m5.7, data=pred.data, n=1e4)
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI)
+
+plot(kcal.per.g ~ neocortex.perc, data=dcc, type='n')
+lines(np.seq, mu.mean)
+lines(np.seq, mu.PI[1,], lty=2)
+lines(np.seq, mu.PI[2,], lty=2)
+
+
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:5.27.png]]
+
+Adding the neocortex and body mass to the same model lead to larger estimated effects of
+both. One is positively correlated and one is negatively correlated with the outcome.
+Also these two variables are positively correlated with each other, they /cancel/ each
+other out. 
+
+* 5.3. When adding variables hurts
+
+Why not just add all the variables?
+
+1. Multicollinearity
+very strong correlation between two or more predictor variables. 
+2. Post-Treatment Bias
+3. Overfitting
+
+** 5.3.1. Multicollinear legs
+Predicting an individual's height using the lengt of legs as predictor variables.
+
+#+BEGIN_SRC R 
+N <- 100
+height <- rnorm(N, 10, 2)
+leg_prop <- runif(N, 0.4, 0.5)
+leg_left <- leg_prop*height + rnorm(N, 0, 0.02)
+leg_right <- leg_prop*height + rnorm(N, 0, 0.02)
+
+d <- data.frame(height, leg_left, leg_right)
+#+END_SRC
+
+#+RESULTS:
+| 10.8709817840725 | 4.76544056438133 | 4.75405266670194 |
+| 10.2084374466254 |  4.6759326249452 | 4.71149723926988 |
+| 7.48082791361918 | 3.23823327081918 | 3.24478856467048 |
+| 9.60829806647558 |  4.7216183749402 | 4.72746026166938 |
+| 9.44970397975916 | 4.24112444255694 | 4.29241159084461 |
+| 6.32090532531932 | 3.00133409753671 | 3.01425782885443 |
+|  12.625184437572 | 5.48660081260655 | 5.48160176470774 |
+| 11.3563105162358 | 5.01797656725148 | 5.01305924844555 |
+| 8.97098570998412 | 3.72087338747947 | 3.70917471548791 |
+|  8.9065232439979 | 3.70993754072263 | 3.68597837174789 |
+| 12.6417982390794 | 5.33989280016905 | 5.28958785818702 |
+| 12.2229081421305 | 5.64364084440569 | 5.65964124520585 |
+| 9.97138155569136 | 4.40113415324466 | 4.35987575742296 |
+| 9.70669765246242 |  4.8284576062592 | 4.81164109674019 |
+|  8.9863569545105 | 4.35218476388225 | 4.34752446580224 |
+| 10.5658624065102 | 4.95752499254383 | 4.91696410763822 |
+| 10.3805047767762 | 4.49243146452616 | 4.49874857004013 |
+| 13.1264721892143 |  5.8246010872875 | 5.83192114009182 |
+| 10.9240858263968 |  4.9097870536028 |  4.8943652871189 |
+| 11.0310945329036 |   4.782430218114 | 4.75364685827541 |
+| 10.1461819934067 | 4.93864545964914 | 4.89079006663667 |
+| 10.5155318960158 | 4.33602939155412 | 4.30457400921949 |
+| 10.4752979236956 | 5.02586935745888 | 5.04055646922088 |
+| 12.1876998407102 |  4.9919730662983 | 5.01272053774025 |
+| 7.07098105218093 | 3.20105280918538 | 3.18759454687986 |
+| 10.9202158378944 | 5.26137858769556 | 5.28497263548204 |
+|  11.243601699776 | 5.11789544794878 | 5.10784342674396 |
+| 10.6540738952506 | 4.58272016500498 | 4.56019573906825 |
+| 10.8037381707815 | 4.83046494503836 | 4.83460206684791 |
+| 7.87163603564941 | 3.72262908519352 | 3.70887112574651 |
+|  11.939812418472 | 5.41320077665719 | 5.33011286159263 |
+| 11.1511050572767 | 4.74692875282458 | 4.70944333118368 |
+| 8.62301707895797 | 4.12788356595244 | 4.09448277336848 |
+| 9.98176451986008 | 4.59087896073714 | 4.56708708377111 |
+|  8.0022747809988 | 3.47797269177851 | 3.43761494861666 |
+|  7.9640363708118 | 3.28018003811718 | 3.26366533961742 |
+| 10.6778786059594 | 4.35476489159462 | 4.38221202184329 |
+| 10.7358657849893 | 5.23475420205095 | 5.22335621153933 |
+| 14.0599808386305 | 5.69349365735554 | 5.67687084435086 |
+| 12.5976756757262 | 5.82802615532373 | 5.83219205512235 |
+| 11.2374002151855 | 4.51756236441466 |  4.5613359090813 |
+| 10.9956419934959 |  4.9823064876975 | 4.97639323549345 |
+| 9.72184455826287 | 3.90074322240932 | 3.90153539866328 |
+| 12.2280821650176 | 5.76620059263468 | 5.73292842838831 |
+| 10.1050043877151 | 4.74671650907839 | 4.73833570858139 |
+| 9.64208742395491 | 4.37294772430407 | 4.38401799254248 |
+|  8.8926152668428 | 3.78363564036681 | 3.76900974712583 |
+| 9.51643215827256 | 4.62126697264397 | 4.63286697016482 |
+| 8.71093187763028 | 4.20067599454301 | 4.22386717989539 |
+| 6.83806824903218 | 2.80321115119378 | 2.82822011389711 |
+| 8.36548280772676 | 3.69151861814062 | 3.69704039995814 |
+| 8.83855720673679 | 3.82190429534317 | 3.85598206401939 |
+|  8.5603992841885 | 4.20910913282468 | 4.20884344913406 |
+| 9.73911467998651 | 4.02364201000931 | 4.03634687716219 |
+| 11.8626802814002 | 5.65706230446858 | 5.64552063671952 |
+| 10.4202909118288 | 4.89869450900834 | 4.90722469543693 |
+| 11.2915821530406 | 5.33050930364419 | 5.39995279181493 |
+| 6.44932681942614 | 2.66531132129438 | 2.64606175236755 |
+| 11.6317477863402 | 5.11845406409755 | 5.07750962856405 |
+| 9.57968330696858 | 3.99459536554843 | 4.02687134027758 |
+| 8.26208723621528 | 3.54502684147879 |  3.5118232777737 |
+| 6.97703563450435 | 2.85900133531561 | 2.81988433345691 |
+| 10.9541946220292 | 4.70317128495535 | 4.67068362372118 |
+| 10.1654105460996 | 4.66746075226708 | 4.68684130520552 |
+| 6.30714128682521 | 2.82250010373212 | 2.79832966508414 |
+| 7.63087603550173 | 3.50727189866417 |  3.4962149934228 |
+| 10.3662216138969 | 4.59494368692387 | 4.57789873336243 |
+| 10.3700585276168 | 4.32983633675258 | 4.31528558175991 |
+| 12.8787859734942 | 5.47216886165868 | 5.49310506154813 |
+| 10.7436609263947 | 4.47584500766143 | 4.50722369304984 |
+| 8.99732065537873 | 3.88815675049186 | 3.86813278328113 |
+| 10.5024509440117 | 5.16236565047529 | 5.13629395916399 |
+| 7.59444628479056 | 3.70488484340627 | 3.69182817950526 |
+| 12.6170042464558 |  6.3170808251851 | 6.25512369968796 |
+| 7.58875912151027 |  3.0984075519694 | 3.08489787832817 |
+| 10.1642437875989 | 4.30953066331399 | 4.32384788691494 |
+| 11.3773528909222 | 5.62434904668498 | 5.62640897764208 |
+| 8.64525069272038 | 3.94643608579581 | 3.98241425947496 |
+| 10.9809843149182 | 4.56460864585732 | 4.56796412597135 |
+|  12.028124375041 |  5.3224260200855 | 5.37506213070367 |
+| 9.39131760784871 | 4.55209526346221 | 4.56925491526686 |
+| 8.79583298732418 |  4.2511288391673 |  4.2688079924991 |
+|  10.386088958531 | 5.09451047280473 | 5.09121741520074 |
+| 10.4006950152676 | 4.80256843207376 | 4.86726079954369 |
+| 11.4728341170681 | 5.00052036531761 | 4.99539873665702 |
+| 11.6479583789642 | 5.78045819593801 | 5.80390259547363 |
+| 9.23157350756692 |  4.2538603557505 | 4.21205101132814 |
+| 11.6318946249466 | 4.68035053423384 | 4.69628805346631 |
+| 7.23643717658822 | 3.53643971898474 | 3.51909864435338 |
+| 10.0746328421593 | 4.89469516730544 | 4.91969086750392 |
+| 10.1225944284962 | 4.33834663850239 | 4.37274766680747 |
+| 12.7042290413159 | 5.82386732603325 | 5.79891547630803 |
+| 8.32184172422136 | 3.36134055694368 | 3.39977186322254 |
+| 10.9025235822322 | 4.71535946699285 | 4.71891029496158 |
+| 8.96247711201105 | 4.10777163910978 | 4.14112973423167 |
+| 11.2316481337701 | 4.84130568778452 | 4.85346587934474 |
+|  8.1276127947624 | 3.62772371519463 | 3.63652544306749 |
+| 11.2825554565898 | 5.55809241073772 | 5.54995017186087 |
+| 9.92647225367875 | 4.32786811072636 |  4.3100355866802 |
+| 10.0099455473183 |   4.284304003253 | 4.22964172718692 |
+
+#+BEGIN_SRC R :results output
+
+m5.8 <- map(
+    alist(
+        height ~ dnorm(mu, sigma),
+        mu <- a +bl*leg_left + br*leg_right,
+        a ~ dnorm(10, 100),
+        bl ~ dnorm(2,10),
+        br ~ dnorm(2, 10),
+        sigma ~ dunif(0, 10)
+    ), data=d)
+
+
+precis(m5.8)
+
+#+END_SRC
+
+#+RESULTS:
+: 
+:       Mean StdDev  5.5% 94.5%
+: a     1.24   0.35  0.68  1.79
+: bl    1.16   2.06 -2.13  4.45
+: br    0.79   2.06 -2.49  4.08
+: sigma 0.60   0.04  0.53  0.66
+
+#+BEGIN_SRC R :results output graphics :file 5.32.png
+post <- extract.samples(m5.8)
+plot(bl ~ br, post, col=col.alpha(rangi2,0.1), pch=16)
+#+END_SRC
+
+#+RESULTS:
+[[file:5.32.png]]
+
+#+BEGIN_SRC R :results output graphics :file 5.33.png
+sum_blbr <- post$bl + post$br
+dens(sum_blbr, col=rangi2, lwd=2, xlab='sum of bl and br')
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:5.33.png]]
+
+#+BEGIN_SRC R :results output
+m5.9 <- map(
+    alist(
+        height ~ dnorm(mu, sigma),
+        mu <- a + bl*leg_left,
+        a ~ dnorm(10, 100),
+        bl ~ dnorm(2, 10),
+        sigma ~ dunif(0, 10)
+    ), data=d)
+
+precis(m5.9)
+#+END_SRC
+
+#+RESULTS:
+: 
+:       Mean StdDev 5.5% 94.5%
+: a     1.24   0.35 0.69  1.79
+: bl    1.95   0.08 1.83  2.08
+: sigma 0.60   0.04 0.53  0.66
+
+When two predictor variables are very strongly correlated, including both in a model may
+lead to confusion.
+
+Re: leg example, it just doesn't make any claims about which leg is more important. 
+
+** 5.3.2. Multicollinear milk
+
+A problem can arise when we may not anticipate a clash between highly correlated
+predictors. 
+
+#+BEGIN_SRC R :results output
+library(rethinking)
+data(milk)
+d <- milk
+
+# kcal.per.g regression on perc. fat
+
+m5.10 <- map(
+    alist(
+        kcal.per.g ~ dnorm(mu, sigma),
+        mu <- a + bf*perc.fat,
+        a ~ dnorm(0.6, 10),
+        bf ~ dnorm(0, 1),
+        sigma ~ dunif(0, 10)
+    ),data = d)
+
+                                        # kcal.per.g regressed on perc.lactose
+
+m5.11 <- map(
+    alist(
+        kcal.per.g ~ dnorm(mu, sigma),
+        mu <- a + bl*perc.lactose,
+        a ~ dnorm (0.6, 10),
+        bl ~ dnorm(0, 1),
+        sigma ~ dunif(0, 10)
+    ), data=d)
+
+precis(m5.10, digits=3)
+precis(m5.11, digits=3)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+       Mean StdDev  5.5% 94.5%
+a     0.301  0.036 0.244 0.358
+bf    0.010  0.001 0.008 0.012
+sigma 0.073  0.010 0.058 0.089
+
+        Mean StdDev   5.5%  94.5%
+a      1.166  0.043  1.098  1.235
+bl    -0.011  0.001 -0.012 -0.009
+sigma  0.062  0.008  0.049  0.075
+#+end_example
+
+You have to compute or plot predictions, unless you decide to standardize all of your
+predictors. 
+
+#+BEGIN_SRC R :results output graphics :file 5.38.png
+
+pairs( ~ kcal.per.g + perc.fat + perc.lactose,
+      data=d, col=rangi2)
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:5.38.png]]
+
+You can anticipate this problem by checking the predictor variables against one another in
+a pairs plot. Any pair or cluster of variables with very large correlations, over about
+0.9, may be prob- lematic, once included as main effects in the same model. However, it
+isn’t always true that highly correlated variables are completely redundant—other
+predictors might be correlated with only one of the pair, and so help extract the unique
+information each predictor provides.
+
+The problem of multicollinearity is a member of a family of problems with fitting models
+known as *non-identifiability*
+
+** 5.3.3. Post-treatment bias
+
+Making mistaken inferences arising from including variables that are consequences of other
+variables. 
+
+#+BEGIN_SRC R 5.41 
+                                        # number of plants
+N <- 100
+
+# simulate initial height
+h0 <- rnorm(N, 10,2)
+
+# assign treatment and simulate fungus and growth
+treatment <- rep(0:1, each=N/2)
+fungus <- rbinom(N, size=1, prob=0.5 - treatment * 0.4)
+h1 <- h0 + rnorm(N, 5 - 3*fungus)
+
+                                        # compose a clean data frame
+d <- data.frame(h0=h0, h1=h1, treatment=treatment, fungus=fungus)
+
+#+END_SRC
+
+#+RESULTS:
+|  9.7476119690656 |  13.003703385414 | 0 | 1 |
+| 12.3570542112182 | 14.5228609764463 | 0 | 0 |
+| 9.98210821376797 | 15.5408338105019 | 0 | 0 |
+| 11.2273382322685 | 14.8051156977909 | 0 | 1 |
+| 7.37209378670475 | 13.5291559172505 | 0 | 0 |
+| 10.7470401675617 |  13.452875970904 | 0 | 0 |
+| 9.01489423191621 | 14.0407796264921 | 0 | 0 |
+| 10.8359951022634 | 18.1761904256083 | 0 | 0 |
+| 10.1464989124031 | 16.4839062779623 | 0 | 0 |
+| 7.20250603955521 | 8.76502927365263 | 0 | 1 |
+| 12.9966505130631 | 18.9273722959732 | 0 | 0 |
+| 11.1481223418344 | 17.1925939021279 | 0 | 0 |
+| 14.4585991474056 | 20.6649155048272 | 0 | 0 |
+|  6.9524771462047 | 10.7396282980781 | 0 | 0 |
+| 12.9347641138396 | 17.4680945927736 | 0 | 0 |
+| 9.46036572401079 | 10.0616387002788 | 0 | 1 |
+| 9.49238901998921 | 14.1470255830832 | 0 | 0 |
+| 9.72064244901289 |  14.783184761641 | 0 | 0 |
+| 12.1194159455265 | 15.4435155482478 | 0 | 0 |
+|  11.223492711852 | 12.3876321494893 | 0 | 1 |
+| 10.6568841704053 | 14.8056429361601 | 0 | 0 |
+| 9.92809700911451 | 15.2436333751597 | 0 | 0 |
+| 12.2235304811687 |    15.0606780395 | 0 | 1 |
+| 12.5562233973488 | 12.2807374634185 | 0 | 1 |
+| 9.16360066420066 | 12.6316596136374 | 0 | 0 |
+| 11.4572675489454 | 16.3666700967329 | 0 | 0 |
+| 8.80141081819638 | 13.6562185241751 | 0 | 0 |
+| 7.91452843583865 | 8.05522621252638 | 0 | 1 |
+| 7.64668165641285 | 8.70459093749736 | 0 | 1 |
+| 9.47956530333074 | 11.6912791748714 | 0 | 1 |
+| 10.1603126798901 | 12.6702000751405 | 0 | 1 |
+| 9.36693167663662 | 13.5185615089384 | 0 | 0 |
+| 7.50331240433031 | 8.92642151785067 | 0 | 1 |
+| 6.88267684506951 | 11.0848640837613 | 0 | 1 |
+|  12.037315265268 | 14.6405350492385 | 0 | 1 |
+| 7.91766640725066 |  10.477489573884 | 0 | 1 |
+|  9.7194445310115 | 12.5838490946132 | 0 | 1 |
+| 8.16699917098089 | 9.34519233645152 | 0 | 1 |
+| 11.4618297599253 | 18.1523135947349 | 0 | 0 |
+| 11.1505276230582 |  15.864955573915 | 0 | 0 |
+| 7.79049617567278 | 10.7022838247397 | 0 | 1 |
+| 9.81434764731286 | 12.9151038449762 | 0 | 0 |
+| 8.95468875848372 | 14.9763989391128 | 0 | 0 |
+| 15.6551179690285 | 21.5915224345532 | 0 | 0 |
+|  11.857793177438 |  12.245335470762 | 0 | 1 |
+|  12.117248194363 |  16.785607490705 | 0 | 0 |
+| 11.0749474148409 | 15.5825052460445 | 0 | 0 |
+| 11.0108183195581 | 13.5113210066933 | 0 | 1 |
+| 11.4066301040517 | 12.4020222428345 | 0 | 1 |
+| 10.2554712512953 | 13.0870463737353 | 0 | 1 |
+| 11.2440421815043 | 16.9705940880822 | 1 | 0 |
+| 11.4661889825725 | 18.0921346014685 | 1 | 0 |
+| 10.6795544701391 | 16.1359804800391 | 1 | 0 |
+| 8.35507572504898 | 12.2315247367379 | 1 | 0 |
+| 12.5130883605776 | 14.1768918311343 | 1 | 1 |
+| 7.66839741896377 | 9.67267601315989 | 1 | 1 |
+| 6.04439931435608 | 11.6830803821612 | 1 | 0 |
+| 10.3000880617301 | 15.8381824254901 | 1 | 0 |
+| 8.79265465107501 | 10.5620285716545 | 1 | 1 |
+| 11.5859559069857 |  17.130729722184 | 1 | 0 |
+| 9.73420800650523 | 14.5083216108809 | 1 | 0 |
+| 10.7506144685328 |   14.76235675151 | 1 | 0 |
+| 8.26415750455218 | 12.4071012865764 | 1 | 0 |
+| 11.8909375240861 | 15.6572685743187 | 1 | 0 |
+| 10.7014097777712 | 15.6614048210716 | 1 | 0 |
+| 9.74629093961919 | 14.1811854070635 | 1 | 0 |
+| 11.6932896808079 | 16.4424262939696 | 1 | 0 |
+| 12.1556081770985 | 15.9536951135451 | 1 | 0 |
+| 7.80582621418963 | 12.3915622227735 | 1 | 0 |
+| 10.8902412119257 | 17.3231705924884 | 1 | 0 |
+| 7.57597595625774 | 11.7095164647133 | 1 | 0 |
+| 8.55309596978308 | 14.0969628684648 | 1 | 0 |
+| 10.7077976224972 | 13.1770136090078 | 1 | 0 |
+| 10.8602394789641 | 14.0894430744402 | 1 | 0 |
+| 8.43791106457015 | 12.8325592003253 | 1 | 0 |
+| 9.78487547385095 | 13.8204624227135 | 1 | 0 |
+| 14.6241576984509 | 18.9505910107531 | 1 | 0 |
+| 9.54701647060861 | 14.6447786023361 | 1 | 0 |
+| 7.28719529477386 | 9.07847300656234 | 1 | 1 |
+| 10.7166866951164 | 14.9856769803984 | 1 | 0 |
+| 9.12024569526486 | 12.6164944703465 | 1 | 0 |
+|  9.7782516712593 | 14.0413997053904 | 1 | 0 |
+|  9.3982621746394 | 15.0970432599432 | 1 | 0 |
+| 8.29913306198149 | 11.0576815474718 | 1 | 0 |
+| 9.91289765817793 | 14.6675176057168 | 1 | 0 |
+| 9.77174095149299 | 15.2352408358501 | 1 | 0 |
+| 8.69984825390432 | 11.9787804564455 | 1 | 0 |
+| 8.67791719939103 | 14.4287248108736 | 1 | 0 |
+| 10.7097098630907 | 14.0032767645589 | 1 | 0 |
+| 8.11446956285011 | 13.3478571693581 | 1 | 0 |
+| 8.40021558744153 | 14.0405429041443 | 1 | 0 |
+| 7.10599946989229 |    12.5252639567 | 1 | 0 |
+| 11.3652002197389 | 15.4817015194766 | 1 | 0 |
+| 11.4041876759381 | 14.8983748598822 | 1 | 0 |
+| 10.9399226046556 | 16.6008728162678 | 1 | 0 |
+| 9.70081575276004 | 15.4742858120067 | 1 | 0 |
+| 8.41644005329895 | 10.4172863998056 | 1 | 1 |
+| 12.6820071232225 | 17.6328721949209 | 1 | 0 |
+| 10.2356776798911 | 14.3128352658956 | 1 | 0 |
+| 4.19973869720841 | 8.85784601239964 | 1 | 0 |
+
+#+BEGIN_SRC R :results output
+
+m5.13 <- map(
+    alist(
+        h1 ~ dnorm(mu, sigma),
+        mu <- a + bh*h0 + bt*treatment + bf*fungus,
+        a ~ dnorm(0,100),
+        c(bh,bt,bf) ~ dnorm(0,10),
+        sigma ~ dunif(0,10)
+    ), data = d)
+
+precis(m5.13)
+
+#+END_SRC
+
+#+RESULTS:
+: 
+:        Mean StdDev  5.5% 94.5%
+: a      4.98   0.65  3.94  6.03
+: bh     0.99   0.06  0.90  1.08
+: bt    -0.23   0.24 -0.61  0.15
+: bf    -2.91   0.27 -3.34 -2.49
+: sigma  1.07   0.08  0.95  1.19
+
+The model is now (because we include fungus): once we already know whether or not a plant
+developed fungus, does soil treatment matter? no
+
+What we really want to know is the impact of treatment on growth. Therefore, we should
+omit fungus.
+
+#+BEGIN_SRC R 5.43
+m5.14 <- map(
+    alist(
+        h1 ~ dnorm(mu, sigma),
+        mu <- a + bh*h0 + bt*treatment,
+        a ~ dnorm(0, 100),
+        c(bh,bt) ~ dnorm(0,10),
+        sigma ~ dunif(0,10)
+    ), data=d)
+
+precis(m5.14)
+
+#+END_SRC
+
+#+RESULTS:
+
+In experiments, it can be easy to figure out which variables are pre-treatment
+In observational studies, this can be harder to know.
+
+* 5.4. Categorical Variables
+
+A common question for statistical methods is to what extent an outcome changes as a result
+of presence or absence of a category.
+
+#+BEGIN_SRC R 5.44
+data(Howell1)
+d <- Howell1
+
+m5.15 <- map(
+    alist(
+        height ~ dnorm(mu, sigma),
+        mu <- a + bm*male,
+        a ~ dnorm(178, 100),
+        bm ~ dnorm(0, 10),
+        sigma ~ dunif(0,50)
+    ), data=d)
+
+precis(m5.15)
+
+#+END_SRC
+
+#+RESULTS:
+
+The most accesible way to derive a percentile interval for average male height is just to
+sample from the posterior. 
+
+#+BEGIN_SRC R 5.46 
+post <- extract.samples(m5.15)
+mu.male <- post$a + post$bm
+PI(mu.male)
+#+END_SRC
+
+#+RESULTS:
+|  139.44986324213 |
+| 144.789718902025 |
+
+** 5.4.2. Many categories. 
+
+To include $k$ categories in a linear model, you require $k - 1$ dummy variables. Each
+dummy variable indicates, with the value 1, a unique category. The category with no dummy
+variable assigned to it ends up again as the "intercept" category.
+
+#+BEGIN_SRC R :results output
+data(milk)
+d <- milk
+
+(d$clade.NWM <- ifelse(d$clade=="New World Monkey", 1, 0))
+
+(d$clade.OWM <- ifelse(d$clade=="Old World Monkey", 1, 0))
+
+(d$clade.S <- ifelse(d$clade=="Strepsirrhine", 1, 0))
+
+
+m5.16 <- map(
+    alist(
+        kcal.per.g ~ dnorm(mu, sigma),
+        mu <- a + b.NWM*clade.NWM + b.OWM*clade.OWM + b.S*clade.S,
+        a ~ dnorm(5, 10),
+        b.NWM ~ dnorm(0, 1),
+        b.OWM ~ dnorm(0, 1),
+        b.S ~ dnorm(0, 1),
+        sigma ~ dunif(0, 10)
+    ), data=d)
+
+precis(m5.16)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+ [1] 0 0 0 0 0 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+
+ [1] 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0
+
+ [1] 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+
+       Mean StdDev  5.5% 94.5%
+a      0.55   0.04  0.49  0.61
+b.NWM  0.17   0.05  0.08  0.25
+b.OWM  0.24   0.06  0.15  0.34
+b.S   -0.04   0.06 -0.14  0.06
+sigma  0.11   0.02  0.09  0.14
+#+end_example
+
+Get posterior distributions of the average milk energy in each category
+These are the most plausible (conditional on data and model) average milk energies in each category.
+
+#+BEGIN_SRC R 5.52 
+# sample posterior
+post <- extract.samples(m5.16)
+
+# compute averages for each category
+mu.ape <- post$a
+mu.NWM <- post$a +post$b.NWM
+mu.OWM <- post$a + post$b.OWM
+mu.S <- post$a + post$b.S
+
+# summarize using precis
+precis(data.frame(mu.ape, mu.NWM, mu.OWM, mu.S))
+#+END_SRC
+
+How to get estimated difference between the two monkey groups. 
+
+#+BEGIN_SRC R :results output 5.53 
+diff.NWM.OWM <- mu.NWM - mu.OWM
+quantile(diff.NWM.OWM, probs=c(0.025, 0.5, 0.975))
+
+
+#+END_SRC
+
+#+RESULTS:
+: 
+:        2.5%         50%       97.5% 
+: -0.19007754 -0.07288103  0.04494481
+
+** 5.4.3. Adding regular predictor variables
+
+You can also add continuous predictor variables to the equation. 
+
+** 5.4.4. Another approach: Unique intercepts
+
+Another way to conceptualize categorical variables is to construct a vector of intercept
+parameters, one parameter for each category. More about this later
+
+
+* 5.5. Ordinary least squares and lm
+
+OLS is a way of estimating the parameters of a linear regression. Instead of searching for
+the combination of parameter values that maximizes the posterior probability, OLS instead
+solves for the parameter values that minimize the sum of the squared residuals. 
+
+Provided you are happy with flat priors, you'll get the same estimates with lm that you
+got with map. 
+
+** 5.5.1. Design formulas
+
+the input format for models in lm is a compact form of notation known as a *design
+formula*. 
+
+** 5.5.2. using LM
+#+BEGIN_SRC R
+m5.17 <- lm(y ~ 1 + x, data=d)
+m5.18 <- lm(y ~ 1 + x + z + w, data=d)
+
+# intercepts are optional
+m5.19 <- lm(y ~ x, data=d)
+
+                                        # if you really do not want an intercept
+m5.20 <- lm(y ~ 0 + x, data=d)
+m5.21 <- lm(y ~ x - 1, data=d)
+
+                                        # categorical variables
+                                        # best practice is to explicitl tell lm when you mean to use a variable as categories.
+
+m5.22 <- lm(y ~ 1 + as.factor(season), data=d)
+
+                                        # transform variables first. Best is to make new variables that hold the transformed values.
+
+d$x2 <- d$x^2
+d$x3 <- d$x^3
+
+m5.23 <- lm(y ~ 1 + x + x2 + x3, data=d)
+
+                                        # use as is function
+m5.24 <- lm(y ~ 1 + x + I(x^2) + I(x^3), data=d)
+
+# you cannot use I within a map function
+#+END_SRC
+
+** 5.5.3. Building map formulas from lm formulas
+
+#+BEGIN_SRC R 5.62 :results output
+data(cars)
+glimmer(dist ~ speed, data=cars)
+
+#+END_SRC
+
+* 5.6 Summary 
+Multiple regression = a way of constructing descriptive models for how the mean of a
+measurement is associated with more than one predictor variable. 
+
+/what is the value of knowing each predictor, once we already know the other predictors?/
+
+1. a focus on the value of the predictors for description of the sample, instead of
+   forecasting a future sample
+2. the assumption that the value of each predictor does not depend upon the values of the
+   other predictors. 
+
+* 5.7. Practice
+
+** 5E1
+
+2, 3, & 4. Three is a strange notation, I'm not entirely sure if its seen as a multiple
+linear regression. 
+
+** 5E2
+\mu_i = \alpha + \beta_l * L_i + \beta_d * D_i
+
+** 5E3
+\mu_i = \alpha + \beta_f * F_i + \beta_s * S_i
+
+They are positively correlated, so they should have positive slope parameters. 
+
+** 5E4
+1, 3, 4, and 5.
+
+** 5M1
+Invent your own example of a spurious correlation. 
+The number of knee injuries is correlated to the temperature. Add number of runs
+
+#+BEGIN_SRC R :results output graphics :file 5m1.png
+N <- 100
+runs <- rnorm(n=100, mean = 0, sd=1)
+temperature <- rnorm(n=N, mean=runs, sd=2)
+injuries <- rnorm(n = N, mean=runs, sd=1)
+d<- data.frame(injuries, temperature, runs)
+pairs(d)
+#+END_SRC
+
+#+RESULTS:
+[[file:5m1.png]]
+
+** 5M2  
+Prediction of deafness from salary 
+number of concerts visited per week
+
+#+BEGIN_SRC R :results output graphics :file 5m2.png
+N <- 100
+rho <- 0.7
+
+age <- rnorm(n=N, mean=0, sd=1)
+visit <- rnorm(n=N, mean = rho * age, sd = sqrt(1 - rho^2))
+deafness <- rnorm(n=N, mean = age - visit, sd = 1)
+d <- data.frame(deafness, age, visit)
+pairs(d)
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:5m2.png]]
+
+** 5M3 
+People that divorce more often also get married again. If you stay in a marriage, you
+won't get married again. 
+
+Regress marriage rate on divorce rate and re-marrying. If divorce rate controled for
+re-marrying no longer predicts marriage rate, this confirms our hypothesis.
+
+** COMMENT 5M4
+
+Find a list of LDS population (States with Mormons) > use as predictor variable,
+predicting divorce rate using marriage rate, median age at marraige, and precent LDS
+(possibly standardized). You may want to consider transformation of the raw percent LDS
+variable. 
+
+#+BEGIN_SRC R
+library(rethinking)
+
+data(WaffleDivorce)
+d <- WaffleDivorce
+
+lds <- c(0.77, 4.53, 6.10, 1.04, 1.94, 2.70, 0.44, 0.57, 0.41, )
+
+#+END_SRC
+
+#+RESULTS:
+| Alabama              | AL |  4.78 | 25.3 | 20.2 | 1.27 | 12.7 | 0.79 | 128 | 1 | 435080 |  964201 |    0.45 |
+| Alaska               | AK |  0.71 | 25.2 |   26 | 2.93 | 12.5 | 2.05 |   0 | 0 |      0 |       0 |       0 |
+| Arizona              | AZ |  6.33 | 25.8 | 20.3 | 0.98 | 10.8 | 0.74 |  18 | 0 |      0 |       0 |       0 |
+| Arkansas             | AR |  2.92 | 24.3 | 26.4 |  1.7 | 13.5 | 1.22 |  41 | 1 | 111115 |  435450 |    0.26 |
+| California           | CA | 37.25 | 26.8 | 19.1 | 0.39 |    8 | 0.24 |   0 | 0 |      0 |  379994 |       0 |
+| Colorado             | CO |  5.03 | 25.7 | 23.5 | 1.24 | 11.6 | 0.94 |  11 | 0 |      0 |   34277 |       0 |
+| Connecticut          | CT |  3.57 | 27.6 | 17.1 | 1.06 |  6.7 | 0.77 |   0 | 0 |      0 |  460147 |       0 |
+| Delaware             | DE |   0.9 | 26.6 | 23.1 | 2.89 |  8.9 | 1.39 |   3 | 0 |   1798 |  112216 |   0.016 |
+| District of Columbia | DC |   0.6 | 29.7 | 17.7 | 2.53 |  6.3 | 1.89 |   0 | 0 |      0 |   75080 |       0 |
+| Florida              | FL |  18.8 | 26.4 |   17 | 0.58 |  8.5 | 0.32 | 133 | 1 |  61745 |  140424 |    0.44 |
+| Georgia              | GA |  9.69 | 25.9 | 22.1 | 0.81 | 11.5 | 0.58 | 381 | 1 | 462198 | 1057286 |    0.44 |
+| Hawaii               | HI |  1.36 | 26.9 | 24.9 | 2.54 |  8.3 | 1.27 |   0 | 0 |      0 |       0 |       0 |
+| Idaho                | ID |  1.57 | 23.2 | 25.8 | 1.84 |  7.7 | 1.05 |   0 | 0 |      0 |       0 |       0 |
+| Illinois             | IL | 12.83 |   27 | 17.9 | 0.58 |    8 | 0.45 |   2 | 0 |      0 | 1711951 |       0 |
+| Indiana              | IN |  6.48 | 25.7 | 19.8 | 0.81 |   11 | 0.63 |  17 | 0 |      0 | 1350428 |       0 |
+| Iowa                 | IA |  3.05 | 25.4 | 21.5 | 1.46 | 10.2 | 0.91 |   0 | 0 |      0 |  674913 |       0 |
+| Kansas               | KS |  2.85 |   25 | 22.1 | 1.48 | 10.6 | 1.09 |   6 | 0 |      2 |  107206 | 1.9e-05 |
+| Kentucky             | KY |  4.34 | 24.8 | 22.2 | 1.11 | 12.6 | 0.75 |  64 | 1 | 225483 | 1155684 |       0 |
+| Louisiana            | LA |  4.53 | 25.9 | 20.6 | 1.19 |   11 | 0.89 |  66 | 1 | 331726 |  708002 |    0.47 |
+| Maine                | ME |  1.33 | 26.4 | 13.5 |  1.4 |   13 | 1.48 |   0 | 0 |      0 |  628279 |       0 |
+| Maryland             | MD |  5.77 | 27.3 | 18.3 | 1.02 |  8.8 | 0.69 |  11 | 0 |  87189 |  687049 |    0.13 |
+| Massachusetts        | MA |  6.55 | 28.5 | 15.8 |  0.7 |  7.8 | 0.52 |   0 | 0 |      0 | 1231066 |       0 |
+| Michigan             | MI |  9.88 | 26.4 | 16.5 | 0.69 |  9.2 | 0.53 |   0 | 0 |      0 |  749113 |       0 |
+| Minnesota            | MN |   5.3 | 26.3 | 15.3 | 0.77 |  7.4 |  0.6 |   0 | 0 |      0 |  172023 |       0 |
+| Mississippi          | MS |  2.97 | 25.8 | 19.3 | 1.54 | 11.1 | 1.01 |  72 | 1 | 436631 |  791305 |    0.55 |
+| Missouri             | MO |  5.99 | 25.6 | 18.6 | 0.81 |  9.5 | 0.67 |  39 | 1 | 114931 | 1182012 |   0.097 |
+| Montana              | MT |  0.99 | 25.7 | 18.5 | 2.31 |  9.1 | 1.71 |   0 | 0 |      0 |       0 |       0 |
+| Nebraska             | NE |  1.83 | 25.4 | 19.6 | 1.44 |  8.8 | 0.94 |   0 | 0 |     15 |   28841 | 0.00052 |
+| New Hampshire        | NH |  1.32 | 26.8 | 16.7 | 1.76 | 10.1 | 1.61 |   0 | 0 |      0 |  326073 |       0 |
+| New Jersey           | NJ |  8.79 | 27.7 | 14.8 | 0.59 |  6.1 | 0.46 |   0 | 0 |     18 |  672035 | 2.7e-05 |
+| New Mexico           | NM |  2.06 | 25.8 | 20.4 |  1.9 | 10.2 | 1.11 |   2 | 0 |      0 |   93516 |       0 |
+| New York             | NY | 19.38 | 28.4 | 16.8 | 0.47 |  6.6 | 0.31 |   0 | 0 |      0 | 3880735 |       0 |
+| North Carolina       | NC |  9.54 | 25.7 | 20.4 | 0.98 |  9.9 | 0.48 | 142 | 1 | 331059 |  992622 |    0.33 |
+| North Dakota         | ND |  0.67 | 25.3 | 26.7 | 2.93 |    8 | 1.44 |   0 | 0 |      0 |       0 |       0 |
+| Ohio                 | OH | 11.54 | 26.3 | 16.9 | 0.61 |  9.5 | 0.45 |  64 | 0 |      0 | 2339511 |       0 |
+| Oklahoma             | OK |  3.75 | 24.4 | 23.8 | 1.29 | 12.8 | 1.01 |  16 | 0 |      0 |       0 |       0 |
+| Oregon               | OR |  3.83 |   26 | 18.9 |  1.1 | 10.4 |  0.8 |   0 | 0 |      0 |   52465 |       0 |
+| Pennsylvania         | PA |  12.7 | 27.1 | 15.5 | 0.48 |  7.7 | 0.43 |  11 | 0 |      0 | 2906215 |       0 |
+| Rhode Island         | RI |  1.05 | 28.2 |   15 | 2.11 |  9.4 | 1.79 |   0 | 0 |      0 |  174620 |       0 |
+| South Carolina       | SC |  4.63 | 26.4 | 18.1 | 1.18 |  8.1 |  0.7 | 144 | 1 | 402406 |  703708 |    0.57 |
+| South Dakota         | SD |  0.81 | 25.6 | 20.1 | 2.64 | 10.9 |  2.5 |   0 | 0 |      0 |    4837 |       0 |
+| Tennessee            | TN |  6.35 | 25.2 | 19.4 | 0.85 | 11.4 | 0.75 | 103 | 1 | 275719 | 1109801 |     0.2 |
+| Texas                | TX | 25.15 | 25.2 | 21.5 | 0.61 |   10 | 0.35 |  99 | 1 | 182566 |  604215 |     0.3 |
+| Utah                 | UT |  2.76 | 23.3 | 29.6 | 1.77 | 10.2 | 0.93 |   0 | 0 |      0 |   40273 |       0 |
+| Vermont              | VT |  0.63 | 26.9 | 16.4 |  2.4 |  9.6 | 1.87 |   0 | 0 |      0 |  315098 |       0 |
+| Virginia             | VA |     8 | 26.4 | 20.5 | 0.83 |  8.9 | 0.52 |  40 | 1 | 490865 | 1219630 |     0.4 |
+| Washington           | WA |  6.72 | 25.9 | 21.4 |    1 |   10 | 0.65 |   0 | 0 |      0 |   11594 |       0 |
+| West Virginia        | WV |  1.85 |   25 | 22.2 | 1.69 | 10.9 | 1.34 |   4 | 1 |  18371 |  376688 |   0.049 |
+| Wisconsin            | WI |  5.69 | 26.3 | 17.2 | 0.79 |  8.3 | 0.57 |   0 | 0 |      0 |  775881 |       0 |
+| Wyoming              | WY |  0.56 | 24.2 | 30.7 | 3.92 | 10.3 |  1.9 |   0 | 0 |      0 |       0 |       0 |
+
+
+
+
+
+
+ 
+
+#+BEGIN_SRC R :results output 
+data(WaffleDivorce)
+d <- WaffleDivorce
+# nevada is missing
+
+d$LDS <- c(0.75, 4.53, 6.18, 1, 2.01, 2.82, 0.43, 0.55, 0.38,
+               0.75, 0.82, 5.18, 26.35, 0.44, 0.66, 0.87, 1.25, 0.77, 0.64, 0.81,
+               0.72, 0.39, 0.44, 0.58, 0.72, 1.14, 4.78, 1.29, 0.61, 0.37, 3.34,
+               0.41, 0.82, 1.48, 0.52, 1.2, 3.85, 0.4, 0.37, 0.83, 1.27, 0.75,
+1.21, 67.97, 0.74, 1.13, 3.99, 0.92, 0.44, 11.5 )
+
+
+
+d$LDS.s <- (d$LDS - mean(d$LDS)) / sd(d$LDS)
+
+#plot(density(log(d$LDS)))
+# standardize values
+
+m_5m4 <- map(
+     alist(
+        Divorce ~ dnorm(mu, sigma),
+        mu <- a + bm * Marriage + ba * MedianAgeMarriage + bl * LDS.s,
+        a ~ dnorm(5, 2),
+        bm ~ dnorm(0, 10),
+        ba ~ dnorm(0,10),
+        bl ~ dnorm(0,10),
+        sigma ~ dunif(0,10)
+    ), data=d)
+
+precis(m_5m4)
+
+#+END_SRC
+
+#+RESULTS:
+: 
+:        Mean StdDev  5.5% 94.5%
+: a      6.86   1.98  3.70 10.02
+: bm     0.26   0.06  0.16  0.36
+: ba    -0.09   0.08 -0.22  0.03
+: bl    -0.54   0.27 -0.96 -0.11
+: sigma  1.59   0.16  1.34  1.85
+
+Lower divorce rates in states with high media age and also higher population numbers of
+Mormons. 
+
+** 5M5
+
+1. Price of gas up > driving less and therefore more exercise (lower obesity rates)
+2. Price of gas up > driving less and therefore less eating out (lower obesity rates)
+
+1. Time on exercise. 
+2. Restaurant visits. 
+
+\mu_i = \alpha + \beta_g * G_i + \beta_e * E_i + \beta_r * R_i
+
+** 5H1
+
+Fit two bivariate regressions
+1. body weight as a linear function of territory size (area)
+2. body weight as a linear function of groupsize
+
+#+BEGIN_SRC R :results output graphics :file 5h1.png
+data(foxes)
+d <- foxes
+
+m_1 <- map(
+    alist(
+        weight ~ dnorm(mu, sigma),
+        mu <- a + bA * area,
+        a ~ dnorm(5, 5),
+        bA ~ dnorm(0,2),
+        sigma ~ dunif(0,10)
+    ), data = d)
+
+precis(m_1)
+
+area.seq <- seq(from = min(d$area), to=max(d$area), length.out=30)
+mu <- link(m_1, data=data.frame(area=area.seq))
+mu.PI <- apply(mu, 2, PI)
+
+plot(weight ~ area, data=d, col=rangi2)
+abline(m_1)
+shade(mu.PI, area.seq)
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:5h1.png]]
+
+#+BEGIN_SRC R :results output graphics :file 5h1-2.png
+
+m_2 <- map(
+    alist(
+        weight ~ dnorm(mu, sigma),
+        mu <- a + bG * groupsize,
+        a ~ dnorm(5, 5),
+        bG ~ dnorm(0,2),
+        sigma ~ dunif(0,10)
+    ), data = d)
+
+precis(m_2)
+
+groupsize.seq <- seq(from = min(d$groupsize), to=max(d$groupsize), length.out=30)
+mu <- link(m_2, data=data.frame(groupsize=groupsize.seq))
+mu.PI <- apply(mu, 2, PI)
+
+plot(weight ~ groupsize, data=d, col=rangi2)
+abline(m_2)
+shade(mu.PI, groupsize.seq)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:5h1-2.png]]
+
+Area has not effect on body weight, and group size has a very slight negative effect. 
+
+** 5H2
+Now fit a multiple linear regression with weight as the outcome and area and groupsize as
+predictor variables. 
+*** plot the predctions of the model for each predictor,, holding the other predictor constant at its mean. 
+*** what does the model say about the importance of each varaible?
+*** why do you get different than you got in the 5H1
+
+#+BEGIN_SRC R :results output graphics :file 5h2-1.png 
+
+m_5h2 <- map(
+    alist(
+        weight ~ dnorm(mu, sigma),
+        mu <- a + bA * area + bG * groupsize,
+        a ~ dnorm(5, 5),
+        bA ~ dnorm(0, 2),
+        bG ~ dnorm(0, 2),
+        sigma ~ dunif(0, 10)
+    ), data=d)
+
+precis(m_5h2)
+
+#Make counterfactual plots
+
+G.avg <- mean(d$groupsize)
+A.seq <- seq(from=min(d$area), to=max(d$area), length.out=30)
+
+pred.data <- data.frame(
+    groupsize = G.avg,
+    area = A.seq
+)
+
+                                        # compute counterfactual mean body weight (mu)
+mu <- link(m_5h2, data=pred.data)
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI)
+
+A.sim <- sim(m_5h2, data=pred.data, n=1e4)
+A.PI <- apply(A.sim, 2, PI)
+
+plot(weight ~ area, data = d, type = "n")
+mtext("mean groupsize")
+lines(A.seq, mu.mean)
+shade(mu.PI, A.seq)
+shade(A.PI, A.seq)
+#+END_SRC
+
+#+RESULTS:
+[[file:5h2-1.png]]
+
+
+#+BEGIN_SRC R :results output graphics :file 5h2-2.png
+
+
+A.avg <- mean(d$area)
+G.seq <- seq(from=min(d$groupsize), to=max(d$groupsize), length.out=30)
+
+pred.data <- data.frame(
+    groupsize = G.seq,
+    area = A.avg
+)
+
+                                        # compute counterfactual mean body weight (mu)
+mu <- link(m_5h2, data=pred.data)
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI)
+
+G.sim <- sim(m_5h2, data=pred.data, n=1e4)
+G.PI <- apply(G.sim, 2, PI)
+
+plot(weight ~ groupsize, data = d, type = "n")
+mtext("mean area")
+lines(G.seq, mu.mean)
+shade(mu.PI, G.seq)
+shade(G.PI, G.seq)
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:5h2-2.png]]
+
+Area is negatively related to body weight, and group size is positively related. Masked
+relationship, group size and area are positively related, masked out teh relationship in
+the bivariate models. 
+
+** 5H3
+*** body weight as an additive function of avgfood and groupsize
+*** body weight as an additive function of avgfood, groupsize, and area.
+
+#+BEGIN_SRC R :results output 
+
+m_h3 <- map(
+    alist(
+        weight ~ dnorm(mu, sigma),
+        mu <- a + bF * avgfood + bG * groupsize,
+        a ~ dnorm(5, 5),
+        bF ~ dnorm(1,1),
+        bG ~ dnorm(4, 2),
+        sigma ~ dunif(0, 10)
+    ), data=d)
+
+precis(m_h3)
+
+#+END_SRC
+
+#+RESULTS:
+: 
+:        Mean StdDev  5.5% 94.5%
+: a      4.54   0.37  3.95  5.13
+: bF     2.05   0.78  0.81  3.30
+: bG    -0.36   0.11 -0.54 -0.18
+: sigma  1.13   0.07  1.01  1.25
+
+Large positive relationship between avgfood and body weight, and a slight negative
+relationship between groupsize and body weight. The former has large error interval. 
+
+#+BEGIN_SRC R :results output
+
+m_h3 <- map(
+    alist(
+        weight ~ dnorm(mu, sigma),
+        mu <- a + bA * area + bF * avgfood + bG * groupsize,
+        a ~ dnorm(5, 5),
+        bA ~ dnorm(0,2),
+        bF ~ dnorm(0, 5),
+        bG ~ dnorm(0, 2),
+        sigma ~ dunif(0, 10)
+    ), data=d)
+
+precis(m_h3)
+#+END_SRC
+Effect of avg food is reduced when including area. Probably multicollinearity between area
+and avg food (large area more food)
+
+#+RESULTS:
+: 
+:        Mean StdDev  5.5% 94.5%
+: a      4.11   0.42  3.43  4.78
+: bA     0.40   0.23  0.02  0.77
+: bF     2.30   1.39  0.08  4.52
+: bG    -0.59   0.15 -0.83 -0.34
+: sigma  1.10   0.07  0.99  1.22
+
+a) is avgfood or area a better predictor of body weight? If you had to choose, which would
+it be? Support your argument with tables or plots
+b) when both avgfood and area are in the same models their effects are reduced and their
+standard errors are larger than when they are included in separate models. Why?
+ 

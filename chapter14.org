@@ -1,0 +1,1571 @@
+#+AUTHOR: Melvin Wevers
+#+TITLE: 14. Missing Data and Other Opportunities
+#+PROPERTY: header-args :session :results value :cache no :exports both
+
+We don't need to be clever if we ruthlessly apply conditional probability
+
+Two commonplace applications of the assume-and-deduce strategy.
+1. the incorporation of *measurement error* into our models.
+2. estimation of *missing data* through *Bayesian Imputation*
+
+* 14.1 Measurement Error
+
+#+BEGIN_SRC R :results output graphics :file 14.2.png
+library(rethinking)
+data(WaffleDivorce)
+d <- WaffleDivorce
+
+# points
+plot(d$Divorce ~ d$MedianAgeMarriage, ylim=c(4,15),
+     xlab="Median age marriage", ylab="Divorce rate")
+
+# std errors
+for (i in 1:nrow(d)){
+    ci <- d$Divorce[i] + c(-1, 1)*d$Divorce.SE[i]
+    x <- d$MedianAgeMarriage[i]
+    lines(c(x,x), ci)
+}
+#+END_SRC
+
+#+RESULTS:
+[[file:14.2.png]]
+
+Information flows among the measurements to provide improved estimates of the data
+itself. 
+
+** 14.1.1. Error on the outcome
+To incorporate measurement error, recognize that we can replace the observed data for
+divorce rate with a distribution. When there is uncertainty about the true value, that
+uncertainty can be replaced by a distribution that represents the information we have. 
+
+If you wanted to simulate measurement error, you would assign a distribution to each
+observation and sample from it. 
+
+Example: Gaussian distribution with mean equal to the observed value and standard
+deviation equal to the measurement's standard error. 
+
+#+BEGIN_SRC R :results output
+dlist <- list(
+    div_obs = d$Divorce,
+    div_sd = d$Divorce.SE,
+    R = d$Marriage,
+    A = d$MedianAgeMarriage
+)
+
+m14.1 <- map2stan(
+    alist(
+        div_est ~ dnorm(mu, sigma),
+        mu <- a + bA*A + bR*R,
+        div_obs ~ dnorm(div_est, div_sd),
+        a ~ dnorm(0, 10),
+        bA ~ dnorm(0, 10),
+        bR ~ dnorm(0, 10),
+        sigma ~ dcauchy(0, 2.5)
+    ),
+    data = dlist,
+    start=list(div_est=dlist$div_obs),
+    WAIC=FALSE, iter=5000, warmup=1000, chains=2, cores=2,
+    control=list(adapt_delta=0.95))
+
+precis(m14.1, depth=2)
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+
+SAMPLING FOR MODEL 'div_est ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+
+SAMPLING FOR MODEL 'div_est ~ dnorm(mu, sigma)' NOW (CHAIN 2).
+Chain 1: 
+Chain 1: Gradient evaluation took 8.1e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.81 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: 
+Chain 2: Gradient evaluation took 5.1e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.51 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 2.35361 seconds (Warm-up)
+Chain 2:                7.39089 seconds (Sampling)
+Chain 2:                9.7445 seconds (Total)
+Chain 2: 
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2.58972 seconds (Warm-up)
+Chain 1:                7.43702 seconds (Sampling)
+Chain 1:                10.0267 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'div_est ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 4.7e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.47 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2e-06 seconds (Warm-up)
+Chain 1:                4.6e-05 seconds (Sampling)
+Chain 1:                4.8e-05 seconds (Total)
+Chain 1: 
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.95 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+ 
+3: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+4: Examine the pairs() plot to diagnose sampling problems
+ 
+5: In map2stan(alist(div_est ~ dnorm(mu, sigma), mu <- a
+bA * A
+ :
+  There were 1 divergent iterations during sampling.
+Check the chains (trace plots, n_eff, Rhat) carefully to ensure they are valid.
+
+             Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+div_est[1]  11.78   0.69      10.65      12.83  9496    1
+div_est[2]  11.18   1.06       9.63      13.01  9201    1
+div_est[3]  10.46   0.62       9.44      11.41 10217    1
+div_est[4]  12.31   0.88      10.89      13.67 11035    1
+div_est[5]   8.05   0.24       7.63       8.40 12435    1
+div_est[6]  11.01   0.75       9.83      12.21 10281    1
+div_est[7]   7.24   0.66       6.21       8.30 10899    1
+div_est[8]   9.35   0.92       7.85      10.78 10318    1
+div_est[9]   7.02   1.10       5.20       8.74  7161    1
+div_est[10]  8.54   0.30       8.06       9.02  9957    1
+div_est[11] 11.15   0.53      10.28      11.97  9427    1
+div_est[12]  9.10   0.91       7.69      10.63  8775    1
+div_est[13]  9.68   0.91       8.20      11.10  4905    1
+div_est[14]  8.12   0.42       7.47       8.84 12099    1
+div_est[15] 10.68   0.55       9.86      11.59 10968    1
+div_est[16] 10.18   0.71       9.04      11.31 12757    1
+div_est[17] 10.51   0.79       9.29      11.80 12748    1
+div_est[18] 11.94   0.66      10.87      12.96  9315    1
+div_est[19] 10.51   0.69       9.39      11.61 11446    1
+div_est[20] 10.17   1.01       8.57      11.80  7352    1
+div_est[21]  8.76   0.60       7.82       9.73 11132    1
+div_est[22]  7.77   0.47       7.00       8.51  9934    1
+div_est[23]  9.15   0.48       8.40       9.93 10581    1
+div_est[24]  7.73   0.54       6.91       8.60 11058    1
+div_est[25] 10.43   0.77       9.23      11.67 10052    1
+div_est[26]  9.53   0.59       8.58      10.46 13185    1
+div_est[27]  9.42   0.96       7.92      10.99 11255    1
+div_est[28]  9.26   0.74       8.09      10.44 12802    1
+div_est[29]  9.18   0.94       7.71      10.73 10044    1
+div_est[30]  6.39   0.44       5.67       7.05 10533    1
+div_est[31]  9.97   0.79       8.65      11.16 11007    1
+div_est[32]  6.69   0.30       6.22       7.18 13492    1
+div_est[33]  9.88   0.44       9.15      10.54 12800    1
+div_est[34]  9.76   0.97       8.22      11.28  8543    1
+div_est[35]  9.43   0.41       8.80      10.12 16631    1
+div_est[36] 11.95   0.78      10.67      13.15  9305    1
+div_est[37] 10.07   0.66       8.97      11.06 14175    1
+div_est[38]  7.80   0.40       7.16       8.42 13109    1
+div_est[39]  8.23   0.99       6.62       9.77  9458    1
+div_est[40]  8.40   0.59       7.49       9.37 13541    1
+div_est[41] 10.00   1.04       8.36      11.70 11976    1
+div_est[42] 10.94   0.63       9.98      12.00 11004    1
+div_est[43] 10.02   0.34       9.49      10.56 11991    1
+div_est[44] 11.08   0.79       9.86      12.38  8485    1
+div_est[45]  8.91   1.00       7.28      10.46 11729    1
+div_est[46]  9.00   0.46       8.25       9.72 11972    1
+div_est[47]  9.95   0.56       9.08      10.86 12929    1
+div_est[48] 10.63   0.87       9.21      11.99 12632    1
+div_est[49]  8.47   0.50       7.66       9.26 12356    1
+div_est[50] 11.50   1.07       9.75      13.13  8399    1
+a           21.39   6.67      11.13      32.19  3137    1
+bA          -0.55   0.22      -0.89      -0.22  3196    1
+bR           0.13   0.08       0.00       0.24  3800    1
+sigma        1.12   0.20       0.80       1.44  2611    1
+Warning message:
+In precis(m14.1, depth = 2) :
+  There were 1 divergent iterations during sampling.
+Check the chains (trace plots, n_eff, Rhat) carefully to ensure they are valid.
+#+end_example
+
+** 14.1.2. Error on both outcome and predictor
+What happens when there is measurement error on predictor variables as well?
+
+#+BEGIN_SRC R :results output
+dlist <- list(
+    div_obs = d$Divorce,
+    div_sd = d$Divorce.SE,
+    mar_obs = d$Marriage,
+    mar_sd = d$Marriage.SE,
+    A = d$MedianAgeMarriage
+)
+
+m14.2 <- map2stan(
+    alist(
+        div_est ~ dnorm(mu, sigma),
+        mu <- a + bA*A + bR*mar_est[i],
+        div_obs ~ dnorm(div_est, div_sd),
+        mar_obs ~ dnorm(mar_est, mar_sd),
+        a ~ dnorm(0, 10),
+        bA ~ dnorm(0, 10),
+        bR ~ dnorm(0, 10),
+        sigma ~ dcauchy(0, 2.5)
+    ),
+    data=dlist,
+    start=list(div_est=dlist$div_obs, mar_est=dlist$mar_obs),
+    WAIC=FALSE, iter=5000, warmup=1000, chains=3, cores=3,
+    control=list(adapt_delta=0.95))
+
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+
+SAMPLING FOR MODEL 'div_est ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+
+
+SAMPLING FOR MODEL 'SAMPLING FOR MODEL 'div_est ~ dnorm(mu, sigma)' NOW (CHAIN div_est ~ dnorm(mu, sigma)' NOW (CHAIN 2).
+3).
+Chain 3: 
+Chain 3: Gradient evaluation took 4.2e-05 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 0.42 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 1: 
+Chain 1: Gradient evaluation took 7.8e-05 seconds
+Chain Chain 31: : Iteration:    1 / 5000 [  0%]  (Warmup)1000 transitions using 10 leapfrog steps per transition would take 0.78 seconds.
+
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 2: 
+Chain 2: Gradient evaluation took 4.3e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.43 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 3: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 3: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 3: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 3: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 3: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 3: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 3: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 3: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 3: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 3: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 3.53189 seconds (Warm-up)
+Chain 2:                9.50619 seconds (Sampling)
+Chain 2:                13.0381 seconds (Total)
+Chain 2: 
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 3.79813 seconds (Warm-up)
+Chain 1:                9.51913 seconds (Sampling)
+Chain 1:                13.3173 seconds (Total)
+Chain 1: 
+Chain 3: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 3: 
+Chain 3:  Elapsed Time: 3.82723 seconds (Warm-up)
+Chain 3:                9.81992 seconds (Sampling)
+Chain 3:                13.6471 seconds (Total)
+Chain 3: 
+
+SAMPLING FOR MODEL 'div_est ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 3e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.3 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0 seconds (Warm-up)
+Chain 1:                5.6e-05 seconds (Sampling)
+Chain 1:                5.6e-05 seconds (Total)
+Chain 1: 
+Warning messages:
+1: There were 2 divergent transitions after warmup. Increasing adapt_delta above 0.95 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+ 
+3: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+4: Examine the pairs() plot to diagnose sampling problems
+ 
+5: In map2stan(alist(div_est ~ dnorm(mu, sigma), mu <- a
+bA * A
+ :
+  There were 2 divergent iterations during sampling.
+Check the chains (trace plots, n_eff, Rhat) carefully to ensure they are valid.
+#+end_example
+
+Error on the predictor did not change the major inference. It did provide updated
+estimates of marriage rate itself. 
+
+When you have a distribution of values don't reduce it down to a single value to use in a
+regression. Use the entire distribution. Do not average, instead model. 
+
+* 14.2. Missing data
+Information can flow from present data to missing data, as long as we are willing to make
+a model of the whole variable. 
+
+** 14.2.1. Imputing neocortex
+Use *Bayesian imputation* to conserve and use information,and produce estimates for
+missing values. 
+
+*MCAR* Missing Completely at Random imputation 
+
+Simultaneously model the predictor variable that has missing data together with the
+outcome variable. The present values will produce estimates that comprise a prior for each
+missing value. These priors will then be updated by the relationship between the predictor
+and the outcome. So there will be a posterior distribution for each missing value. 
+
+#+BEGIN_SRC R :results output
+library(rethinking)
+data(milk)
+d <- milk
+d$neocortex.prop <- d$neocortex.perc / 100
+d$logmass <- log(d$mass)
+
+# prep data
+data_list <- list(
+    kcal = d$kcal.per.g,
+    neocortex = d$neocortex.prop,
+    logmass = d$logmass)
+
+                                        # fit model
+m14.3 <- map2stan(
+    alist(
+        kcal ~ dnorm(mu, sigma),
+        mu <- a + bN*neocortex + bM*logmass,
+        neocortex ~ dnorm(nu, sigma_N),
+        a ~ dnorm(0, 100),
+        c(bN, bM) ~ dnorm(0, 10),
+        nu ~ dnorm(0.5, 1),
+        sigma_N ~ dcauchy(0,1),
+        sigma ~ dcauchy(0,1)
+    ),
+    data=data_list, iter=1e4, chains=2)
+
+precis(m14.3, depth=2)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+Imputing 12 missing values (NA) in variable 'neocortex'.
+DIAGNOSTIC(S) FROM PARSER:
+Info (non-fatal):
+Left-hand side of sampling statement (~) may contain a non-linear transform of a parameter or local variable.
+If it does, you need to include a target += statement with the log absolute determinant of the Jacobian of the transform.
+Left-hand-side of sampling statement:
+    neocortex_merge ~ normal(...)
+
+
+SAMPLING FOR MODEL 'kcal ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 2.2e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.22 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 1: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 1: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 1: Iteration: 3000 / 10000 [ 30%]  (Warmup)
+Chain 1: Iteration: 4000 / 10000 [ 40%]  (Warmup)
+Chain 1: Iteration: 5000 / 10000 [ 50%]  (Warmup)
+Chain 1: Iteration: 5001 / 10000 [ 50%]  (Sampling)
+Chain 1: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 1: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 1: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 1: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 1: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2.90533 seconds (Warm-up)
+Chain 1:                3.21861 seconds (Sampling)
+Chain 1:                6.12394 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'kcal ~ dnorm(mu, sigma)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 1e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.1 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 2: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 2: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 2: Iteration: 3000 / 10000 [ 30%]  (Warmup)
+Chain 2: Iteration: 4000 / 10000 [ 40%]  (Warmup)
+Chain 2: Iteration: 5000 / 10000 [ 50%]  (Warmup)
+Chain 2: Iteration: 5001 / 10000 [ 50%]  (Sampling)
+Chain 2: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 2: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 2: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 2: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 2: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 2.30257 seconds (Warm-up)
+Chain 2:                3.33808 seconds (Sampling)
+Chain 2:                5.64065 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'kcal ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 1.1e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.11 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2e-06 seconds (Warm-up)
+Chain 1:                3.5e-05 seconds (Sampling)
+Chain 1:                3.7e-05 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 1000 / 10000 ][ 2000 / 10000 ][ 3000 / 10000 ][ 4000 / 10000 ][ 5000 / 10000 ][ 6000 / 10000 ][ 7000 / 10000 ][ 8000 / 10000 ][ 9000 / 10000 ][ 10000 / 10000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+                      Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+neocortex_impute[1]   0.63   0.05       0.55       0.71  8394    1
+neocortex_impute[2]   0.63   0.05       0.55       0.71  6882    1
+neocortex_impute[3]   0.62   0.05       0.54       0.70  8016    1
+neocortex_impute[4]   0.65   0.05       0.58       0.73  9924    1
+neocortex_impute[5]   0.70   0.05       0.62       0.78  9464    1
+neocortex_impute[6]   0.66   0.05       0.58       0.74 10016    1
+neocortex_impute[7]   0.69   0.05       0.61       0.77  9842    1
+neocortex_impute[8]   0.70   0.05       0.62       0.77 10372    1
+neocortex_impute[9]   0.71   0.05       0.63       0.79  8337    1
+neocortex_impute[10]  0.65   0.05       0.57       0.72  9521    1
+neocortex_impute[11]  0.66   0.05       0.58       0.73  9718    1
+neocortex_impute[12]  0.70   0.05       0.62       0.78  9334    1
+a                    -0.53   0.47      -1.29       0.18  2447    1
+bN                    1.90   0.73       0.78       3.08  2409    1
+bM                   -0.07   0.02      -0.10      -0.03  3361    1
+nu                    0.67   0.01       0.65       0.69  6951    1
+sigma_N               0.06   0.01       0.05       0.08  4659    1
+sigma                 0.13   0.02       0.10       0.17  3740    1
+#+end_example
+
+** 14.2.2. Improving the imputation model
+Make a model that accounts for the association among the predictors themselves.
+
+#+BEGIN_SRC R :results output
+m14.4 <- map2stan(
+    alist(
+        kcal ~ dnorm(mu, sigma),
+        mu <- a + bN*neocortex + bM*logmass,
+        neocortex ~ dnorm(nu, sigma_N),
+        nu <- a_N + gM*logmass,
+        a ~ dnorm(0, 100),
+        c(bN, bM, gM) ~ dnorm(0,10),
+        a_N ~ dnorm(0.5, 1),
+        sigma_N ~ dcauchy(0, 1),
+        sigma ~ dcauchy(0,1)
+    ),
+    data=data_list, iter=1e4, chains=2)
+precis(m14.4, depth=2)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+Imputing 12 missing values (NA) in variable 'neocortex'.
+DIAGNOSTIC(S) FROM PARSER:
+Info (non-fatal):
+Left-hand side of sampling statement (~) may contain a non-linear transform of a parameter or local variable.
+If it does, you need to include a target += statement with the log absolute determinant of the Jacobian of the transform.
+Left-hand-side of sampling statement:
+    neocortex_merge ~ normal(...)
+
+
+SAMPLING FOR MODEL 'kcal ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 2.8e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.28 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 1: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 1: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 1: Iteration: 3000 / 10000 [ 30%]  (Warmup)
+Chain 1: Iteration: 4000 / 10000 [ 40%]  (Warmup)
+Chain 1: Iteration: 5000 / 10000 [ 50%]  (Warmup)
+Chain 1: Iteration: 5001 / 10000 [ 50%]  (Sampling)
+Chain 1: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 1: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 1: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 1: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 1: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 3.69459 seconds (Warm-up)
+Chain 1:                4.14998 seconds (Sampling)
+Chain 1:                7.84456 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'kcal ~ dnorm(mu, sigma)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 1.1e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.11 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 2: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 2: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 2: Iteration: 3000 / 10000 [ 30%]  (Warmup)
+Chain 2: Iteration: 4000 / 10000 [ 40%]  (Warmup)
+Chain 2: Iteration: 5000 / 10000 [ 50%]  (Warmup)
+Chain 2: Iteration: 5001 / 10000 [ 50%]  (Sampling)
+Chain 2: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 2: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 2: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 2: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 2: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 3.19472 seconds (Warm-up)
+Chain 2:                4.16472 seconds (Sampling)
+Chain 2:                7.35944 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'kcal ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 1.5e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.15 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0 seconds (Warm-up)
+Chain 1:                4.3e-05 seconds (Sampling)
+Chain 1:                4.3e-05 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 1000 / 10000 ][ 2000 / 10000 ][ 3000 / 10000 ][ 4000 / 10000 ][ 5000 / 10000 ][ 6000 / 10000 ][ 7000 / 10000 ][ 8000 / 10000 ][ 9000 / 10000 ][ 10000 / 10000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+                      Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+neocortex_impute[1]   0.63   0.04       0.58       0.69  8808    1
+neocortex_impute[2]   0.63   0.04       0.57       0.68  9009    1
+neocortex_impute[3]   0.62   0.04       0.56       0.68  8264    1
+neocortex_impute[4]   0.65   0.03       0.59       0.70 11062    1
+neocortex_impute[5]   0.66   0.04       0.61       0.72  9791    1
+neocortex_impute[6]   0.63   0.03       0.57       0.68  9066    1
+neocortex_impute[7]   0.68   0.03       0.63       0.74 11630    1
+neocortex_impute[8]   0.70   0.03       0.64       0.75 10783    1
+neocortex_impute[9]   0.71   0.03       0.66       0.77 12032    1
+neocortex_impute[10]  0.66   0.03       0.61       0.72 11014    1
+neocortex_impute[11]  0.68   0.03       0.62       0.73 11649    1
+neocortex_impute[12]  0.74   0.04       0.69       0.80 11102    1
+a                    -0.87   0.49      -1.65      -0.13  3158    1
+bN                    2.45   0.76       1.31       3.68  3114    1
+bM                   -0.09   0.02      -0.13      -0.05  3955    1
+gM                    0.02   0.01       0.01       0.03  7144    1
+a_N                   0.64   0.01       0.62       0.66  6322    1
+sigma_N               0.04   0.01       0.03       0.05  4513    1
+sigma                 0.13   0.02       0.09       0.16  6023    1
+#+end_example
+
+** 14.2.3. Not at random
+In many cases, it is more plausible that missing values are not randomly distributed
+across cases. Certain values of outcomes or predictors are more likely to induce
+missingness. 
+
+* Practice
+
+** 14E1 
+\[
+T_i ~ Poisson(/mu_{i})
+\log \mu{i} = \alpha + \beta*log_pop_est_{i}
+\log_pop_obs_{i} ~ Normal(log_pop_est{i}, logpop_se_{i})
+alpha ~ Normal(0,1)
+beta ~ Normal(0,1)
+\]
+
+** 14E2
+\[
+T_i ~ Poisson(/mu_{i})
+\log \mu{i} = \alpha + \beta*log_pop{i}
+log_pop_{i} ~ dnorm(nu, sigma_logpop)
+alpha ~ Normal(0, 10)
+beta ~ Normal(0, 1)
+nu ~ Normal(0.5, 1)
+sigma_logpop ~ Cauchy(0,1)
+\]
+
+** 14M1
+We assume that the location of the missing values is completely random with respect to
+those values and all other values in the data. 
+
+** 14M2
+#+BEGIN_SRC R :results output 
+
+data(milk)
+d <- milk
+d$neocortex.prop <- d$neocortex.perc / 100
+d$logmass <- log(d$mass)
+
+
+# prep data
+data_list <- list(
+    kcal = d$kcal.per.g,
+    neocortex = d$neocortex.prop,
+    logmass = d$logmass)
+
+m14_imputation <- map2stan(
+    alist(
+        kcal ~ dnorm(mu, sigma),
+        mu <- a + bM*neocortex + bM*logmass,
+        neocortex ~ dnorm(nu, sigma_N),
+        a ~ dnorm(0, 100),
+        c(bN, bM) ~ dnorm(0,10),
+        nu ~ dnorm(0.5, 1),
+        sigma_N ~ dcauchy(0,1),
+        sigma ~ dcauchy(0, 1)
+    ),
+    data=data_list, iter=1e4, chains=2)
+
+#prep data
+
+d_complete <- d[ complete.cases(d$neocortex.prop),]
+
+data_list_c <- list(
+    kcal = d_complete$kcal.per.g,
+    neocortex = d_complete$neocortex.prop,
+    logmass = d_complete$logmass)
+
+
+m14_complete <- map2stan(
+    alist(
+        kcal ~ dnorm(mu, sigma),
+        mu <- a + bN*neocortex + bM*logmass,
+        a ~ dnorm(0, 100),
+        c(bN, bM) ~ dnorm(0, 10),
+        sigma ~ dcauchy(0,1)
+    ),
+    data=data_list_c, iter=1e4, chains=2)
+
+compare(m14_imputation, m14_complete)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+Imputing 12 missing values (NA) in variable 'neocortex'.
+DIAGNOSTIC(S) FROM PARSER:
+Info (non-fatal):
+Left-hand side of sampling statement (~) may contain a non-linear transform of a parameter or local variable.
+If it does, you need to include a target += statement with the log absolute determinant of the Jacobian of the transform.
+Left-hand-side of sampling statement:
+    neocortex_merge ~ normal(...)
+
+recompiling to avoid crashing R session
+
+SAMPLING FOR MODEL 'kcal ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 2e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.2 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 1: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 1: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 1: Iteration: 3000 / 10000 [ 30%]  (Warmup)
+Chain 1: Iteration: 4000 / 10000 [ 40%]  (Warmup)
+Chain 1: Iteration: 5000 / 10000 [ 50%]  (Warmup)
+Chain 1: Iteration: 5001 / 10000 [ 50%]  (Sampling)
+Chain 1: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 1: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 1: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 1: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 1: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.632651 seconds (Warm-up)
+Chain 1:                0.318414 seconds (Sampling)
+Chain 1:                0.951065 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'kcal ~ dnorm(mu, sigma)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 2.8e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.28 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 2: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 2: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 2: Iteration: 3000 / 10000 [ 30%]  (Warmup)
+Chain 2: Iteration: 4000 / 10000 [ 40%]  (Warmup)
+Chain 2: Iteration: 5000 / 10000 [ 50%]  (Warmup)
+Chain 2: Iteration: 5001 / 10000 [ 50%]  (Sampling)
+Chain 2: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 2: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 2: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 2: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 2: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.364181 seconds (Warm-up)
+Chain 2:                0.426935 seconds (Sampling)
+Chain 2:                0.791116 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'kcal ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 1.2e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.12 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 1e-06 seconds (Warm-up)
+Chain 1:                4.4e-05 seconds (Sampling)
+Chain 1:                4.5e-05 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 1000 / 10000 ][ 2000 / 10000 ][ 3000 / 10000 ][ 4000 / 10000 ][ 5000 / 10000 ][ 6000 / 10000 ][ 7000 / 10000 ][ 8000 / 10000 ][ 9000 / 10000 ][ 10000 / 10000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+
+SAMPLING FOR MODEL 'kcal ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 1.5e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.15 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 1: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 1: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 1: Iteration: 3000 / 10000 [ 30%]  (Warmup)
+Chain 1: Iteration: 4000 / 10000 [ 40%]  (Warmup)
+Chain 1: Iteration: 5000 / 10000 [ 50%]  (Warmup)
+Chain 1: Iteration: 5001 / 10000 [ 50%]  (Sampling)
+Chain 1: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 1: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 1: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 1: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 1: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 1.05428 seconds (Warm-up)
+Chain 1:                1.23412 seconds (Sampling)
+Chain 1:                2.28839 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'kcal ~ dnorm(mu, sigma)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 6e-06 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.06 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 2: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 2: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 2: Iteration: 3000 / 10000 [ 30%]  (Warmup)
+Chain 2: Iteration: 4000 / 10000 [ 40%]  (Warmup)
+Chain 2: Iteration: 5000 / 10000 [ 50%]  (Warmup)
+Chain 2: Iteration: 5001 / 10000 [ 50%]  (Sampling)
+Chain 2: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 2: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 2: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 2: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 2: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.951456 seconds (Warm-up)
+Chain 2:                1.19859 seconds (Sampling)
+Chain 2:                2.15005 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'kcal ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 8e-06 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.08 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0 seconds (Warm-up)
+Chain 1:                2.5e-05 seconds (Sampling)
+Chain 1:                2.5e-05 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 1000 / 10000 ][ 2000 / 10000 ][ 3000 / 10000 ][ 4000 / 10000 ][ 5000 / 10000 ][ 6000 / 10000 ][ 7000 / 10000 ][ 8000 / 10000 ][ 9000 / 10000 ][ 10000 / 10000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+ 
+3: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+4: Examine the pairs() plot to diagnose sampling problems
+ 
+5: In map2stan(alist(kcal ~ dnorm(mu, sigma), mu <- a
+bN * neocortex
+ :
+  There were 1 divergent iterations during sampling.
+Check the chains (trace plots, n_eff, Rhat) carefully to ensure they are valid.
+
+                WAIC pWAIC dWAIC weight   SE  dSE
+m14_imputation -22.2   2.1   0.0   0.94 5.69   NA
+m14_complete   -16.7   3.2   5.5   0.06 5.06 9.55
+Warning messages:
+1: In compare(m14_imputation, m14_complete) :
+  Different numbers of observations found for at least two models.
+Information criteria only valid for comparing models fit to exactly same observations.
+Number of observations for each model:
+m14_imputation 29 
+m14_complete 17 
+
+2: In waic_ptw1 - waic_ptw2 :
+  longer object length is not a multiple of shorter object length
+#+end_example
+
+The WAIC score goes down for the model with imputation. With the model receiving almost
+all of the weight. 
+
+** 14M3
+#+BEGIN_SRC R :results output
+library(rethinking)
+data(WaffleDivorce)
+d <- WaffleDivorce
+
+dlist <- list(
+    div_obs=d$Divorce,
+    div_sd=d$Divorce.SE * 2,
+    R=d$Marriage,
+    A=d$MedianAgeMarriage
+)
+
+m14.1 <- map2stan(
+    a
+list(
+        div_est ~ dnorm(mu, sigma),
+        mu <- a + bA*A + bR*R,
+        div_obs ~ dnorm(div_est, div_sd),
+        a ~ dnorm(0,10),
+        bA ~ dnorm(0,10),
+        bR ~ dnorm(0, 10),
+        sigma ~ dcauchy(0, 2.5)
+    ),
+    data=dlist,
+    start=list(div_est=dlist$div_obs),
+    WAIC=FALSE, iter=10000, warmup=2000, chains=2, cores=2,
+    control=list(adapt_delta=0.95))
+
+precis(m14.1, depth=2)
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+recompiling to avoid crashing R session
+
+SAMPLING FOR MODEL 'div_est ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+
+SAMPLING FOR MODEL 'div_est ~ dnorm(mu, sigma)' NOW (CHAIN 2).
+Chain 1Chain : 
+2: 
+Chain Chain 12: : Gradient evaluation took 4.1e-05 secondsGradient evaluation took 5.4e-05 seconds
+
+Chain Chain 12: : 1000 transitions using 10 leapfrog steps per transition would take 0.41 seconds.1000 transitions using 10 leapfrog steps per transition would take 0.54 seconds.
+
+Chain Chain 12: : Adjust your expectations accordingly!Adjust your expectations accordingly!
+
+Chain Chain 12: : 
+
+Chain Chain 12: : 
+
+Chain 1: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 2: Iteration:    1 / 10000 [  0%]  (Warmup)
+Chain 2: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1000 / 10000 [ 10%]  (Warmup)
+Chain 2: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 2: Iteration: 2001 / 10000 [ 20%]  (Sampling)
+Chain 1: Iteration: 2000 / 10000 [ 20%]  (Warmup)
+Chain 1: Iteration: 2001 / 10000 [ 20%]  (Sampling)
+Chain 1: Iteration: 3000 / 10000 [ 30%]  (Sampling)
+Chain 2: Iteration: 3000 / 10000 [ 30%]  (Sampling)
+Chain 1: Iteration: 4000 / 10000 [ 40%]  (Sampling)
+Chain 2: Iteration: 4000 / 10000 [ 40%]  (Sampling)
+Chain 1: Iteration: 5000 / 10000 [ 50%]  (Sampling)
+Chain 1: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 2: Iteration: 5000 / 10000 [ 50%]  (Sampling)
+Chain 1: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 1: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 2: Iteration: 6000 / 10000 [ 60%]  (Sampling)
+Chain 1: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 2: Iteration: 7000 / 10000 [ 70%]  (Sampling)
+Chain 1: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 10.9669 seconds (Warm-up)
+Chain 1:                33.6499 seconds (Sampling)
+Chain 1:                44.6168 seconds (Total)
+Chain 1: 
+Chain 2: Iteration: 8000 / 10000 [ 80%]  (Sampling)
+Chain 2: Iteration: 9000 / 10000 [ 90%]  (Sampling)
+Chain 2: Iteration: 10000 / 10000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 9.00864 seconds (Warm-up)
+Chain 2:                55.4834 seconds (Sampling)
+Chain 2:                64.492 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'div_est ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 4.8e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.48 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2e-06 seconds (Warm-up)
+Chain 1:                6.2e-05 seconds (Sampling)
+Chain 1:                6.4e-05 seconds (Total)
+Chain 1: 
+Warning messages:
+1: There were 1352 divergent transitions after warmup. Increasing adapt_delta above 0.95 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: There were 7634 transitions after warmup that exceeded the maximum treedepth. Increase max_treedepth above 10. See
+http://mc-stan.org/misc/warnings.html#maximum-treedepth-exceeded 
+3: There were 2 chains where the estimated Bayesian Fraction of Missing Information was low. See
+http://mc-stan.org/misc/warnings.html#bfmi-low 
+4: Examine the pairs() plot to diagnose sampling problems
+ 
+5: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+6: Examine the pairs() plot to diagnose sampling problems
+ 
+7: In map2stan(alist(div_est ~ dnorm(mu, sigma), mu <- a
+bA * A
+ :
+  There were 1352 divergent iterations during sampling.
+Check the chains (trace plots, n_eff, Rhat) carefully to ensure they are valid.
+
+             Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+div_est[1]  10.10   0.52       9.31      10.92  1283 1.00
+div_est[2]  11.23   0.72      10.22      12.44   529 1.01
+div_est[3]   9.73   0.50       8.97      10.48  1542 1.00
+div_est[4]  11.85   0.70      10.74      12.92   655 1.01
+div_est[5]   8.48   0.38       7.80       9.04   325 1.01
+div_est[6]  10.44   0.57       9.52      11.31   958 1.00
+div_est[7]   7.84   0.50       7.01       8.58  2549 1.00
+div_est[8]   9.78   0.64       8.77      10.75   731 1.01
+div_est[9]   6.90   0.83       5.55       8.18  1142 1.01
+div_est[10]  8.56   0.39       7.93       9.15  2127 1.00
+div_est[11] 10.17   0.53       9.37      10.98   567 1.01
+div_est[12]  9.96   0.75       8.78      11.14   920 1.00
+div_est[13] 12.06   0.80      10.84      13.26   432 1.01
+div_est[14]  8.35   0.43       7.66       9.03  3401 1.00
+div_est[15]  9.72   0.49       8.96      10.54   823 1.00
+div_est[16] 10.13   0.51       9.34      10.93   984 1.00
+div_est[17] 10.48   0.56       9.64      11.34   830 1.00
+div_est[18] 10.77   0.55       9.82      11.53   765 1.00
+div_est[19]  9.72   0.51       8.94      10.51  1252 1.00
+div_est[20]  7.93   0.70       6.88       9.01   874 1.00
+div_est[21]  8.39   0.50       7.62       9.14  1528 1.00
+div_est[22]  7.24   0.55       6.38       8.11  1140 1.01
+div_est[23]  8.56   0.48       7.82       9.32  1059 1.00
+div_est[24]  8.15   0.53       7.36       9.01  1551 1.00
+div_est[25]  9.50   0.51       8.71      10.26  1232 1.00
+div_est[26]  9.37   0.48       8.63      10.12  1607 1.00
+div_est[27]  9.27   0.53       8.28       9.97   959 1.00
+div_est[28]  9.64   0.51       8.86      10.43  1169 1.00
+div_est[29]  8.32   0.53       7.53       9.13  2465 1.00
+div_est[30]  7.12   0.49       6.39       7.91  1359 1.00
+div_est[31]  9.67   0.52       8.86      10.43  1012 1.00
+div_est[32]  7.15   0.44       6.46       7.86  1990 1.00
+div_est[33]  9.75   0.44       9.04      10.41  1983 1.00
+div_est[34] 11.22   0.75      10.05      12.38   899 1.01
+div_est[35]  8.77   0.47       8.03       9.48  1217 1.00
+div_est[36] 11.24   0.62      10.29      12.25   381 1.01
+div_est[37]  9.29   0.49       8.50      10.01  1556 1.00
+div_est[38]  7.80   0.46       7.08       8.51  1124 1.00
+div_est[39]  7.18   0.62       6.22       8.11  1548 1.00
+div_est[40]  8.75   0.47       8.03       9.49  2973 1.00
+div_est[41]  9.71   0.52       8.89      10.47  1296 1.00
+div_est[42]  9.89   0.54       9.03      10.74   659 1.00
+div_est[43] 10.18   0.43       9.60      10.97   598 1.00
+div_est[44] 12.88   0.90      11.41      14.21   366 1.01
+div_est[45]  8.18   0.55       7.34       9.02  1272 1.00
+div_est[46]  9.27   0.45       8.56       9.96  2028 1.00
+div_est[47]  9.84   0.49       9.08      10.60  1856 1.00
+div_est[48] 10.50   0.55       9.66      11.37  1915 1.00
+div_est[49]  8.62   0.47       7.87       9.34  1897 1.00
+div_est[50] 12.76   0.96      11.41      14.45   496 1.01
+a           19.34   6.71       9.04      30.20   651 1.01
+bA          -0.55   0.21      -0.89      -0.22   615 1.01
+bR           0.22   0.09       0.09       0.36   580 1.01
+sigma        0.42   0.22       0.07       0.70   130 1.04
+Warning message:
+In precis(m14.1, depth = 2) :
+  There were 1352 divergent iterations during sampling.
+Check the chains (trace plots, n_eff, Rhat) carefully to ensure they are valid.
+#+end_example
+
+It was much more difficult to convergence, rhat above 1. 
+
+** 14H1
+
+#+BEGIN_SRC R :results output
+library(rethinking)
+data(elephants)
+d <- elephants
+
+#d$log_age <- d$AGE
+
+m14h1 <- map2stan(
+    alist(
+        MATINGS ~ dpois(lambda),
+        log(lambda) <- a + bA*AGE,
+        a ~ dnorm(0, 5),
+        bA ~ dnorm(0,1)
+        ), data=d, iter=5000, warmup=1000, chains=2, cores=2)
+
+precis(m14h1)
+#plot(m14h1)
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+recompiling to avoid crashing R session
+
+SAMPLING FOR MODEL 'MATINGS ~ dpois(lambda)' NOW (CHAIN 1).
+
+SAMPLING FOR MODEL 'MATINGS ~ dpois(lambda)' NOW (CHAIN 2).
+Chain 1: 
+Chain 1: Gradient evaluation took 4.3e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.43 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: 
+Chain 2: Gradient evaluation took 3.2e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.32 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.087015 seconds (Warm-up)
+Chain 2:                0.29676 seconds (Sampling)
+Chain 2:                0.383775 seconds (Total)
+Chain 2: 
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.114717 seconds (Warm-up)
+Chain 1:                0.306652 seconds (Sampling)
+Chain 1:                0.421369 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'MATINGS ~ dpois(lambda)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 2.1e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.21 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2e-06 seconds (Warm-up)
+Chain 1:                4e-05 seconds (Sampling)
+Chain 1:                4.2e-05 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 800 / 8000 ][ 1600 / 8000 ][ 2400 / 8000 ][ 3200 / 8000 ][ 4000 / 8000 ][ 4800 / 8000 ][ 5600 / 8000 ][ 6400 / 8000 ][ 7200 / 8000 ][ 8000 / 8000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+    Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+a  -1.57   0.54      -2.40      -0.68  1428    1
+bA  0.07   0.01       0.05       0.09  1431    1
+#+end_example
+
+#+BEGIN_SRC R :results output
+
+m14h1.se <- map2stan(
+    alist(
+        MATINGS ~ dpois(lambda),
+        log(lambda) <- a + bA*AGE_est[i],
+        AGE ~ dnorm(AGE_est, 5),
+        a ~ dnorm(0, 5),
+        bA ~ dnorm(0,1)
+        ), data=d, start=list(AGE_est=d$AGE), iter=5000, warmup=1000, chains=2, cores=2)
+
+precis(m14h1.se)
+#plot(m14h1)
+
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+recompiling to avoid crashing R session
+
+
+SAMPLINGSAMPLING FOR MODEL ' FOR MODEL 'MATINGS ~ dpois(lambda)MATINGS ~ dpois(lambda)' NOW (CHAIN ' NOW (CHAIN 21).
+).
+Chain 1: 
+Chain 1: Gradient evaluation took 3.8e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.38 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 2: 
+Chain Chain 21: : Iteration:    1 / 5000 [  0%]  (Warmup)
+Gradient evaluation took 6.1e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.61 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.706454 seconds (Warm-up)
+Chain 2:                0.786162 seconds (Sampling)
+Chain 2:                1.49262 seconds (Total)
+Chain 2: 
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.672366 seconds (Warm-up)
+Chain 1:                0.819944 seconds (Sampling)
+Chain 1:                1.49231 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'MATINGS ~ dpois(lambda)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 2.3e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.23 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 1e-06 seconds (Warm-up)
+Chain 1:                4.9e-05 seconds (Sampling)
+Chain 1:                5e-05 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 800 / 8000 ][ 1600 / 8000 ][ 2400 / 8000 ][ 3200 / 8000 ][ 4000 / 8000 ][ 4800 / 8000 ][ 5600 / 8000 ][ 6400 / 8000 ][ 7200 / 8000 ][ 8000 / 8000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+41 vector or matrix parameters omitted in display. Use depth=2 to show them.
+    Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+a  -1.61   0.61      -2.57      -0.65  2923    1
+bA  0.07   0.02       0.04       0.09  2816    1
+#+end_example
+
+#+BEGIN_SRC R :results graphics :file 14h1.png
+matings_sample <- sim(m14h1.se)
+matings_est <- apply(matings_sample, 2, mean)
+
+
+post1 <- extract.samples(m14h1)
+lambda1 <- sapply(age_seq, function(x) exp(post1$a + x*post1$b))
+lambda1.avg <- apply(lambda1, 2, mean)
+lambda1.PI <- apply(lambda1, 2, PI)
+
+post <- extract.samples(m14h1.se)
+age_estimated <- apply(post$AGE_est, 2, mean)
+
+plot(1, 1, xlab='age', ylab='mating', xlim=c(25, 55), ylim=c(0, 10),  type='n')
+points(d$AGE, d$MATINGS, pch=16, col='blue')
+points(age_estimated, matings_est)
+
+age_seq <- seq(25, 55, by=0.5)
+lambda <- sapply(age_seq, function(x) exp(post$a + x*post$b))
+lambda.avg <- apply(lambda, 2, mean)
+lambda.PI <- apply(lambda, 2, PI)
+
+
+lines(age_seq, lambda1.avg, col=col.alpha(rangi2, 0.4))
+shade(lambda1.PI, age_seq, col=col.alpha(rangi2, 0.4))
+
+
+lines(age_seq, lambda.avg, type='l', lty=2)
+shade(lambda.PI, age_seq)
+
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:14h1.png]]
+
+Even though confidence interva does not change a lot, the estimated measurements are
+placed much closer on the inferred trend, due to shrinkage. 
+
+** 14H2
+#+BEGIN_SRC R
+
+m14h2.se <- map2stan(
+    alist(
+        MATINGS ~ dpois(lambda),
+        log(lambda) <- a + bA*AGE_est[i],
+        AGE ~ dnorm(AGE_est, 35),
+        a ~ dnorm(0, 5),
+        bA ~ dnorm(0,1)
+        ), data=d, start=list(AGE_est=d$AGE), iter=5000, warmup=1000, chains=2, cores=2)
+
+precis(m14h2.se, depth=2)
+#plot(m14h1)
+
+#+END_SRC
+
+#+RESULTS:
+
+** 14H3
+
+#+BEGIN_SRC R :results output
+set.seed(100)
+x <- c(rnorm(10), NA)
+y <- c(rnorm(10, x), 100)
+d <- list(x=x, y=y)
+
+m14h3.filtered <- map2stan(
+    alist(
+        y ~ dnorm(mu, sigma),
+        mu <- a + b*x,
+        a ~ dnorm(0, 100),
+        b ~ dnorm(0, 100),
+        sigma ~ dcauchy(0, 1)
+        ), data=list(x=x[1:10], y=y[1:10], iter=3000, chains=2, cores=2))
+
+m14h3 <- map2stan(
+    alist(
+        y ~ dnorm(mu, sigma),
+        mu <- a + b*x,
+        x ~ dnorm(0, 1),
+        a ~ dnorm(0, 100),
+        b ~ dnorm(0, 100),
+        sigma ~ dcauchy(0, 1)
+    ), data=d, iter=3000, chains=2, cores=2)
+
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+recompiling to avoid crashing R session
+
+SAMPLING FOR MODEL 'y ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 1.1e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.11 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 2000 [  0%]  (Warmup)
+Chain 1: Iteration:  200 / 2000 [ 10%]  (Warmup)
+Chain 1: Iteration:  400 / 2000 [ 20%]  (Warmup)
+Chain 1: Iteration:  600 / 2000 [ 30%]  (Warmup)
+Chain 1: Iteration:  800 / 2000 [ 40%]  (Warmup)
+Chain 1: Iteration: 1000 / 2000 [ 50%]  (Warmup)
+Chain 1: Iteration: 1001 / 2000 [ 50%]  (Sampling)
+Chain 1: Iteration: 1200 / 2000 [ 60%]  (Sampling)
+Chain 1: Iteration: 1400 / 2000 [ 70%]  (Sampling)
+Chain 1: Iteration: 1600 / 2000 [ 80%]  (Sampling)
+Chain 1: Iteration: 1800 / 2000 [ 90%]  (Sampling)
+Chain 1: Iteration: 2000 / 2000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.026408 seconds (Warm-up)
+Chain 1:                0.02163 seconds (Sampling)
+Chain 1:                0.048038 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'y ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 7e-06 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.07 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 1e-06 seconds (Warm-up)
+Chain 1:                2.2e-05 seconds (Sampling)
+Chain 1:                2.3e-05 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 100 / 1000 ][ 200 / 1000 ][ 300 / 1000 ][ 400 / 1000 ][ 500 / 1000 ][ 600 / 1000 ][ 700 / 1000 ][ 800 / 1000 ][ 900 / 1000 ][ 1000 / 1000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+Imputing 1 missing values (NA) in variable 'x'.
+DIAGNOSTIC(S) FROM PARSER:
+Info (non-fatal):
+Left-hand side of sampling statement (~) may contain a non-linear transform of a parameter or local variable.
+If it does, you need to include a target += statement with the log absolute determinant of the Jacobian of the transform.
+Left-hand-side of sampling statement:
+    x_merge ~ normal(...)
+
+
+SAMPLING FOR MODEL 'y ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 3.4e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.34 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 3000 [  0%]  (Warmup)
+
+SAMPLING FOR MODEL 'y ~ dnorm(mu, sigma)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 4.2e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.42 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 3000 [  0%]  (Warmup)
+Chain 1: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 2: Iteration:  300 / 3000 [ 10%]  (Warmup)
+Chain 1: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 2: Iteration:  600 / 3000 [ 20%]  (Warmup)
+Chain 1: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 2: Iteration:  900 / 3000 [ 30%]  (Warmup)
+Chain 1: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 2: Iteration: 1200 / 3000 [ 40%]  (Warmup)
+Chain 2: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 2: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+Chain 1: Iteration: 1500 / 3000 [ 50%]  (Warmup)
+Chain 1: Iteration: 1501 / 3000 [ 50%]  (Sampling)
+Chain 1: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+Chain 2: Iteration: 1800 / 3000 [ 60%]  (Sampling)
+Chain 1: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 2: Iteration: 2100 / 3000 [ 70%]  (Sampling)
+Chain 1: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+Chain 2: Iteration: 2400 / 3000 [ 80%]  (Sampling)
+Chain 1: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 2: Iteration: 2700 / 3000 [ 90%]  (Sampling)
+Chain 1: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.100187 seconds (Warm-up)
+Chain 1:                0.087629 seconds (Sampling)
+Chain 1:                0.187816 seconds (Total)
+Chain 1: 
+Chain 2: Iteration: 3000 / 3000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.096545 seconds (Warm-up)
+Chain 2:                0.107997 seconds (Sampling)
+Chain 2:                0.204542 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'y ~ dnorm(mu, sigma)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 2.5e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.25 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 3e-06 seconds (Warm-up)
+Chain 1:                6.1e-05 seconds (Sampling)
+Chain 1:                6.4e-05 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 300 / 3000 ][ 600 / 3000 ][ 900 / 3000 ][ 1200 / 3000 ][ 1500 / 3000 ][ 1800 / 3000 ][ 2100 / 3000 ][ 2400 / 3000 ][ 2700 / 3000 ][ 3000 / 3000 ]
+Warning messages:
+1: There were 10 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+ 
+3: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+4: Examine the pairs() plot to diagnose sampling problems
+ 
+5: In map2stan(alist(y ~ dnorm(mu, sigma), mu <- a
+b * x, x ~ dnorm(0,  :
+  There were 10 divergent iterations during sampling.
+Check the chains (trace plots, n_eff, Rhat) carefully to ensure they are valid.
+#+end_example
+
+#+BEGIN_SRC R :results graphics :file 14h3-1.png
+precis(m14h3)
+post14h3 <- extract.samples(m14h3)
+dens(post14h3$b)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:14h3-1.png]]
+
+#+BEGIN_SRC R :results graphics :file 14h3-2.png
+precis(m14h3.filtered)
+post14h3.filtered <- extract.samples(m14h3.filtered)
+dens(post14h3.filtered$b)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:14h3-2.png]]
+
+The system cannot determine the relationship with the extreme 100 value. 
+Is it a positve or negative relationship. Therefore two distributions. 

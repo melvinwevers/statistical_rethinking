@@ -1,0 +1,1612 @@
+#+TITLE: Chapter 4: Linear Models
+#+AUTHOR: Melvin Wevers
+#+PROPERTY: header-args :session :results value :cache no :exports both
+
+*Linear regression* is the geocentric model of applied statistics. Learn about the mean
+and variance of some measurement. The uncertainty is described by a Gaussian
+distribution. 
+
+* 4.1 Why normal distributions are normal
+
+Any process that adds together random values from the same distribution converges to a
+normal. (73) Depending on the underlying distribution, the convergence might be slow (74)
+
+
+#+BEGIN_SRC R :results output graphics :file 4.1.png
+library(rethinking)
+
+pos <- replicate(1000, sum(runif(16, -1, 1)))
+plot(density(pos))
+#+END_SRC
+
+#+RESULTS:
+[[file:4.1.png]]
+
+** 4.1.2 Normal by multiplication
+ 
+#+BEGIN_SRC R :4.2
+prod(1 + runif(12,0,0.1))
+#+END_SRC
+
+#+RESULTS:
+: 1.73544290304761
+
+
+#+BEGIN_SRC R :4.3 :results output graphics :file 4.3.png
+
+growth <- replicate(10000, prod(1 + runif(12,0,0.1)))
+dens(growth, norm.comp=TRUE)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:4.3.png]]
+
+Small effects that multiply together are approximately additive, thus they also tend to
+stabilize on Gaussian distribution. (74)
+
+#+BEGIN_SRC R :4.4 :results
+big <- replicate(10000, prod(1 + runif(12, 0, 0.5)))
+small <- replicate(10000, prod(1 + runif(12, 0, 0.01)))
+
+#+END_SRC
+
+#+RESULTS:
+
+Large deviates that are multiplied together do not produce Gaussian distributions, they do
+tend to produce Guassian distributions on the /log scale/
+Adding logs is equivalent to multiplying the original numbers. 
+
+#+BEGIN_SRC R 
+
+log.big <- replicate(10000, log(prod(1 + runif(12, 0, 0.5))))
+dens(log.big)
+#+END_SRC
+
+#+RESULTS:
+
+** 4.1.4 Using Gaussian distribtuions
+
+Use Guassian distributions as a skeleton for our hypotheses, building up models of
+measurements as aggregations of normal distributions. The justification for using the
+Guassian distribution fall into two broad categories:
+
+1. Ontological justification
+The Guassian is a member of a family of fundamental natural distributions known as the
+*exponential family*. 
+Statistical models based on Guassian distributions cannot reliably identify
+micro-processes. 
+
+2. epistemological justification
+ It represents a particular state of ignorance. This justification is premised on
+*information theory* and *Maximum entropy*. 
+
+Guassian is continuous, binomial requires integers.
+Binomial are called /probability mass functions/ indicated by Pr.
+Guassian are called /probability density functions/ indicated by $p$ or $f$.
+
+* 4.2 Language for describing models
+1. we recognize a set of measurements that we hope to predict or understand, the /outcome/
+   variable or variables. 
+2. for each of these variables, we define a /likelihood distribution/ that defines the
+   plausability of individual observations. In linear regression, this distributions is
+   always Guassian. 
+3. Then we recognize a set of measurements that we hope to use to predict or understand
+   the outcome. Call these /predictor variables/.
+4. We relate the exact shape of the likelihood distribution-its precise location and
+   variance and other aspects of its shape-to the predictor variables. We are forced to
+   name and define all of the model's parameters.
+5. Finally, we choose priors for all of the parameters in the model. These priors define
+   the initial information state of the model, before seeing the data. 
+
+** 4.2.1 Re-describing the globe tossing model.
+$w ~ Binomial(n,p)$
+The count $w$ is distributed binomially with sample size $n$ and probability $p$.
+
+$p ~ Uniform(0,1)$
+The prior for $p$ is assumed to be uniform between zero and one. 
+
+The ~ indicates that the models are *stochastic* > a mapping of a variable or parameter
+onto a distribution. 
+
+#+BEGIN_SRC R 4.6
+w <- 6; n <- 9;
+p_grid <- seq(from=0, to=1, length.out = 100)
+posterior <- dbinom(w, n, p_grid)*dunif(p_grid,0,1)
+posterior <- posterior/sum(posterior)
+
+#+END_SRC
+
+#+RESULTS:
+|                    0 |
+| 8.74189398791492e-12 |
+|  5.4252840987223e-10 |
+| 5.99057536056806e-09 |
+|  3.2618055871609e-08 |
+| 1.20539918994648e-07 |
+| 3.48564903450553e-07 |
+| 8.50900993207683e-07 |
+| 1.83481130520292e-06 |
+|  3.5984037726459e-06 |
+| 6.54782899001093e-06 |
+| 1.12132482180156e-05 |
+| 1.82630178086118e-05 |
+| 2.85156172012696e-05 |
+| 4.29489251626258e-05 |
+| 6.27065230918837e-05 |
+| 8.91007749942023e-05 |
+| 0.000123612501133695 |
+| 0.000167887126416567 |
+| 0.000223727245223366 |
+| 0.000293081601707287 |
+|  0.00037803053850299 |
+| 0.000480768017347422 |
+| 0.000603580362300663 |
+| 0.000748821920071008 |
+| 0.000918887872393992 |
+|  0.00111618447249035 |
+|  0.00134309701133254 |
+|  0.00160195584978361 |
+|   0.0018950008796361 |
+|  0.00222434480017186 |
+|  0.00259193561708635 |
+|  0.00299951878747366 |
+|  0.00344859944805004 |
+|  0.00394040517390531 |
+|  0.00447584972181243 |
+|  0.00505549821549587 |
+|  0.00567953423025973 |
+|  0.00634772923100561 |
+|  0.00705941481092973 |
+|   0.0078134581680772 |
+|  0.00860824124344944 |
+|  0.00944164392750848 |
+|    0.010311031721699 |
+|   0.0112132482180157 |
+|     0.01214461273268 |
+|   0.0131009233996553 |
+|   0.0140774659960267 |
+|   0.0150690287341931 |
+|   0.0160699232153781 |
+|   0.0170740116951463 |
+|   0.0180747407644264 |
+|   0.0190651814989869 |
+|   0.0200380760763796 |
+|   0.0209858908020709 |
+|   0.0219008754258118 |
+|    0.022775128565257 |
+|   0.0236006689864361 |
+|   0.0243695124198997 |
+|   0.0250737535172113 |
+|   0.0257056524749375 |
+|   0.0262577257723955 |
+|   0.0267228403851567 |
+|   0.0270943107486732 |
+|   0.0273659976553888 |
+|   0.0275324081743269 |
+|   0.0275887955844003 |
+|   0.0275312582115765 |
+|   0.0273568359555468 |
+|    0.027063603183691 |
+|    0.026650756558907 |
+|   0.0261186962532753 |
+|   0.0254690988815652 |
+|   0.0247049803672496 |
+|   0.0238307468289909 |
+|   0.0228522314474795 |
+|   0.0217767151410615 |
+|   0.0206129287437707 |
+|   0.0193710342411911 |
+|   0.0180625824780198 |
+|   0.0167004446062638 |
+|   0.0152987143947097 |
+|   0.0138725783686308 |
+|   0.0124381505936547 |
+|   0.0110122687593042 |
+|  0.00961224805593935 |
+|  0.00825558917367807 |
+|  0.00695963658334737 |
+|  0.00574118308762402 |
+|    0.004616016455259 |
+|   0.0035984037726459 |
+|  0.00270050896498646 |
+|  0.00193173875393266 |
+|  0.00129801212983692 |
+| 0.000800948224626002 |
+| 0.000436967275826884 |
+| 0.000196299173415093 |
+| 6.18938789279139e-05 |
+| 8.22780068627348e-06 |
+|                    0 |
+
+* 4.3. A Gaussian model of height
+
+** 4.3.1. The data. 
+
+#+BEGIN_SRC R 4.7
+library(rethinking)
+data(Howell1)
+d <- Howell1
+str( d )
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R 4.9
+d2 <- d[d$age >= 18,]
+dens(d2$height)
+#+END_SRC
+
+#+RESULTS:
+
+** 4.3.2. The model 
+
+Be careful about choosing a Guassian distribution just because the outcome variable looks
+guassian. 
+
+We are to compute the plausability of each combination of $\mu$ and $\sigma$
+$h_i ~ Normal(\mu, \sigma)$
+
+Independence is an epistemological assumption not an ontological one, about the world. It
+exists within the Golem.
+
+We need a prior Pr(\mu, \sigma), the joint prior probability for all parameters. 
+
+$h_i ~ Normal(\mu, \sigma)$
+$\mu ~ Normal(178, 20)$
+$\sigma ~ Uniform(0, 50)$
+
+Domain-specific knowledge has gone into this prior. 
+It is a good idea to plot your priors. 
+
+#+BEGIN_SRC R 4.11
+curve(dnorm(x, 178, 20), from=100, to=250)
+#+END_SRC
+
+#+RESULTS:
+|   100 | 9.93277356963864e-06 |
+| 101.5 | 1.32702840190114e-05 |
+|   103 | 1.76297841183723e-05 |
+| 104.5 | 2.32900737667519e-05 |
+|   106 | 3.05950965056886e-05 |
+| 107.5 | 3.99659264045377e-05 |
+|   109 | 5.19140647830705e-05 |
+| 110.5 | 6.70559436745189e-05 |
+|   112 | 8.61284469526841e-05 |
+| 113.5 | 0.000110005157516357 |
+|   115 | 0.000139712920743972 |
+| 116.5 | 0.000176448182765688 |
+|   118 |   0.0002215924205969 |
+| 119.5 | 0.000276725835139025 |
+|   121 | 0.000343638334530699 |
+| 122.5 | 0.000424336703111936 |
+|   124 |  0.00052104674072113 |
+| 125.5 | 0.000636209079841572 |
+|   127 | 0.000772467356719759 |
+| 128.5 | 0.000932647439613495 |
+|   130 |  0.00111972651474214 |
+| 131.5 |  0.00133679100861241 |
+|   133 |  0.00158698259178337 |
+| 134.5 |  0.00187343186761169 |
+|   136 |  0.00219917979902136 |
+| 137.5 |  0.00256708746003847 |
+|   139 |   0.0029797353034408 |
+| 140.5 |   0.0034393137913346 |
+|   142 |  0.00394750791504471 |
+| 143.5 |   0.0045053788015649 |
+|   145 |   0.0051132462281989 |
+| 146.5 |   0.0057705764039175 |
+|   148 |  0.00647587978329459 |
+| 149.5 |  0.00722662391614664 |
+|   151 |  0.00801916636709598 |
+| 152.5 |  0.00884871253550899 |
+|   154 |  0.00970930274916065 |
+| 155.5 |    0.010593832288785 |
+|   157 |   0.0114941070342117 |
+| 158.5 |   0.0124009362305369 |
+|   160 |   0.0133042624949377 |
+| 161.5 |   0.0141933276762444 |
+|   163 |   0.0150568716077402 |
+| 164.5 |   0.0158833592357574 |
+|   166 |     0.01666123014459 |
+| 167.5 |   0.0173791632146174 |
+|   169 |   0.0180263481230824 |
+| 170.5 |   0.0185927546934884 |
+|   172 |   0.0190693907730262 |
+| 173.5 |   0.0194485394018375 |
+|   175 |   0.0197239665453944 |
+| 176.5 |   0.0198910915803749 |
+|   178 |   0.0199471140200716 |
+| 179.5 |   0.0198910915803749 |
+|   181 |   0.0197239665453944 |
+| 182.5 |   0.0194485394018375 |
+|   184 |   0.0190693907730262 |
+| 185.5 |   0.0185927546934884 |
+|   187 |   0.0180263481230824 |
+| 188.5 |   0.0173791632146174 |
+|   190 |     0.01666123014459 |
+| 191.5 |   0.0158833592357574 |
+|   193 |   0.0150568716077402 |
+| 194.5 |   0.0141933276762444 |
+|   196 |   0.0133042624949377 |
+| 197.5 |   0.0124009362305369 |
+|   199 |   0.0114941070342117 |
+| 200.5 |    0.010593832288785 |
+|   202 |  0.00970930274916065 |
+| 203.5 |  0.00884871253550899 |
+|   205 |  0.00801916636709598 |
+| 206.5 |  0.00722662391614664 |
+|   208 |  0.00647587978329459 |
+| 209.5 |   0.0057705764039175 |
+|   211 |   0.0051132462281989 |
+| 212.5 |   0.0045053788015649 |
+|   214 |  0.00394750791504471 |
+| 215.5 |   0.0034393137913346 |
+|   217 |   0.0029797353034408 |
+| 218.5 |  0.00256708746003847 |
+|   220 |  0.00219917979902136 |
+| 221.5 |  0.00187343186761169 |
+|   223 |  0.00158698259178337 |
+| 224.5 |  0.00133679100861241 |
+|   226 |  0.00111972651474214 |
+| 227.5 | 0.000932647439613495 |
+|   229 | 0.000772467356719759 |
+| 230.5 | 0.000636209079841572 |
+|   232 |  0.00052104674072113 |
+| 233.5 | 0.000424336703111936 |
+|   235 | 0.000343638334530699 |
+| 236.5 | 0.000276725835139025 |
+|   238 |   0.0002215924205969 |
+| 239.5 | 0.000176448182765688 |
+|   241 | 0.000139712920743972 |
+| 242.5 | 0.000110005157516357 |
+|   244 | 8.61284469526841e-05 |
+| 245.5 | 6.70559436745189e-05 |
+|   247 | 5.19140647830705e-05 |
+| 248.5 | 3.99659264045377e-05 |
+|   250 | 3.05950965056886e-05 |
+
+#+BEGIN_SRC R 4.12 
+curve(dunif(x, 0, 50), from=-10, to=60)
+#+END_SRC
+
+#+RESULTS:
+|                -10 |    0 |
+|               -9.3 |    0 |
+|               -8.6 |    0 |
+|               -7.9 |    0 |
+|               -7.2 |    0 |
+|               -6.5 |    0 |
+|               -5.8 |    0 |
+|               -5.1 |    0 |
+|               -4.4 |    0 |
+|               -3.7 |    0 |
+|                 -3 |    0 |
+|               -2.3 |    0 |
+|               -1.6 |    0 |
+|               -0.9 |    0 |
+| -0.200000000000001 |    0 |
+|                0.5 | 0.02 |
+|                1.2 | 0.02 |
+|                1.9 | 0.02 |
+|                2.6 | 0.02 |
+|                3.3 | 0.02 |
+|                  4 | 0.02 |
+|                4.7 | 0.02 |
+|                5.4 | 0.02 |
+|                6.1 | 0.02 |
+|                6.8 | 0.02 |
+|                7.5 | 0.02 |
+|                8.2 | 0.02 |
+|                8.9 | 0.02 |
+|                9.6 | 0.02 |
+|               10.3 | 0.02 |
+|                 11 | 0.02 |
+|               11.7 | 0.02 |
+|               12.4 | 0.02 |
+|               13.1 | 0.02 |
+|               13.8 | 0.02 |
+|               14.5 | 0.02 |
+|               15.2 | 0.02 |
+|               15.9 | 0.02 |
+|               16.6 | 0.02 |
+|               17.3 | 0.02 |
+|                 18 | 0.02 |
+|               18.7 | 0.02 |
+|               19.4 | 0.02 |
+|               20.1 | 0.02 |
+|               20.8 | 0.02 |
+|               21.5 | 0.02 |
+|               22.2 | 0.02 |
+|               22.9 | 0.02 |
+|               23.6 | 0.02 |
+|               24.3 | 0.02 |
+|                 25 | 0.02 |
+|               25.7 | 0.02 |
+|               26.4 | 0.02 |
+|               27.1 | 0.02 |
+|               27.8 | 0.02 |
+|               28.5 | 0.02 |
+|               29.2 | 0.02 |
+|               29.9 | 0.02 |
+|               30.6 | 0.02 |
+|               31.3 | 0.02 |
+|                 32 | 0.02 |
+|               32.7 | 0.02 |
+|               33.4 | 0.02 |
+|               34.1 | 0.02 |
+|               34.8 | 0.02 |
+|               35.5 | 0.02 |
+|               36.2 | 0.02 |
+|               36.9 | 0.02 |
+|               37.6 | 0.02 |
+|               38.3 | 0.02 |
+|                 39 | 0.02 |
+|               39.7 | 0.02 |
+|               40.4 | 0.02 |
+|               41.1 | 0.02 |
+|               41.8 | 0.02 |
+|               42.5 | 0.02 |
+|               43.2 | 0.02 |
+|               43.9 | 0.02 |
+|               44.6 | 0.02 |
+|               45.3 | 0.02 |
+|                 46 | 0.02 |
+|               46.7 | 0.02 |
+|               47.4 | 0.02 |
+|               48.1 | 0.02 |
+|               48.8 | 0.02 |
+|               49.5 | 0.02 |
+|               50.2 |    0 |
+|               50.9 |    0 |
+|               51.6 |    0 |
+|               52.3 |    0 |
+|                 53 |    0 |
+|               53.7 |    0 |
+|               54.4 |    0 |
+|               55.1 |    0 |
+|               55.8 |    0 |
+|               56.5 |    0 |
+|               57.2 |    0 |
+|               57.9 |    0 |
+|               58.6 |    0 |
+|               59.3 |    0 |
+|                 60 |    0 |
+
+#+BEGIN_SRC R 4.13
+sample_mu <- rnorm(1e4, 178, 20)
+sample_sigma <- runif(1e4, 0, 50)
+prior_h <- rnorm(1e4, sample_mu, sample_sigma)
+dens(prior_h)
+
+#+END_SRC
+
+#+RESULTS:
+
+** 4.3.3. Grid approximation of the posterior distribution
+#+BEGIN_SRC R 4.14
+mu.list <- seq(from=140, to=160, length.out = 200)
+sigma.list <- seq(from=4, to=9, length.out = 200)
+post <- expand.grid(mu=mu.list, sigma=sigma.list)
+post$LL <- sapply(1:nrow(post), function(i) sum(dnorm(
+                                                d2$height,
+                                                mean=post$mu[i],
+                                                sd=post$sigma[i],
+                                                log=TRUE)))
+post$prod <- post$LL + dnorm(post$mu, 178, 20, TRUE) +
+    dunif(post$sigma, 0, 50, TRUE)
+post$prob <- exp(post$prod - max(post$prod))
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R 4.15
+contour_xyz(post$mu, post$sigma, post$prob)
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R 4.16
+image_xyz(post$mu, post$sigma, post$prob)
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R 4.17
+sample.rows <- sample(1:nrow(post), size=1e4, replace=TRUE, prob=post$prob)
+sample.mu <- post$mu[sample.rows]
+sample.sigma <- post$sigma[sample.rows]
+
+plot(sample.mu, sample.sigma, cex=0.5, pch=16, col=col.alpha(rangi2,0.1))
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R 4.19 :results output graphics :file test.png test2.png 
+dens(sample.mu)
+
+dens(sample.sigma)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:test.png test2.png]]
+
+Marginal posterior densities of mu and sigma means > averaging over the other parameters
+
+To summarize the width of these densities with the highest posterior density intervals 
+
+#+BEGIN_SRC R
+HPDI(sample.mu)
+#+END_SRC
+
+#+RESULTS:
+| 153.869346733668 |
+| 155.175879396985 |
+
+#+BEGIN_SRC R
+HPDI(sample.sigma)
+#+END_SRC
+
+#+RESULTS:
+| 7.26633165829146 |
+| 8.19597989949749 |
+
+Variances are positive, therefore, there must be more uncertainty about how big the
+variance is than about how it is. 
+
+** 4.3.5. fitting the model with map
+
+#+BEGIN_SRC R 4.24
+library(rethinking)
+data(Howell1)
+d <- Howell1
+d2 <- d[d$age >= 18,]
+
+#+END_SRC
+
+#+RESULTS:
+|  151.765 | 47.8256065 |               63 | 1 |
+|    139.7 | 36.4858065 |               63 | 0 |
+|  136.525 |  31.864838 |               65 | 0 |
+|  156.845 | 53.0419145 |               41 | 1 |
+|  145.415 |  41.276872 |               51 | 0 |
+|   163.83 |  62.992589 |               35 | 1 |
+|  149.225 | 38.2434755 |               32 | 0 |
+|   168.91 | 55.4799715 |               27 | 1 |
+|  147.955 |  34.869885 |               19 | 0 |
+|    165.1 |  54.487739 |               54 | 1 |
+|  154.305 |   49.89512 |               47 | 0 |
+|   151.13 |  41.220173 |               66 | 1 |
+|   144.78 | 36.0322145 |               73 | 0 |
+|    149.9 |       47.7 |               20 | 0 |
+|  150.495 |  33.849303 |             65.3 | 0 |
+|  163.195 | 48.5626935 |               36 | 1 |
+|   157.48 | 42.3258035 |               44 | 1 |
+| 143.9418 | 38.3568735 |               31 | 0 |
+|   161.29 |  48.987936 |               39 | 1 |
+|   156.21 | 42.7226965 |               29 | 0 |
+|    146.4 |  35.493574 |               56 | 1 |
+|   148.59 | 37.9032815 |               45 | 0 |
+|   147.32 | 35.4652245 |               19 | 0 |
+|  147.955 |  40.312989 |               29 | 1 |
+|  161.925 |  55.111428 |               30 | 1 |
+|   146.05 | 37.5063885 |               24 | 0 |
+|   146.05 |  38.498621 |               35 | 0 |
+| 152.7048 |  46.606578 |               33 | 0 |
+|  142.875 |  38.838815 |               27 | 0 |
+|  142.875 | 35.5786225 |               32 | 0 |
+|  147.955 |  47.400364 |               36 | 0 |
+|  160.655 | 47.8823055 |               24 | 1 |
+|  151.765 | 49.4131785 |               30 | 1 |
+| 162.8648 |  49.384829 |               24 | 1 |
+|   171.45 | 56.5572525 |               52 | 1 |
+|   147.32 |   39.12231 |               42 | 0 |
+|  147.955 |   49.89512 |               19 | 0 |
+|  154.305 | 41.2485225 |               55 | 1 |
+|   143.51 |   38.55532 |               43 | 0 |
+|    146.7 |       42.4 |               20 | 1 |
+|   157.48 | 44.6504625 |               18 | 1 |
+|  165.735 | 58.5984165 |               42 | 1 |
+|    152.4 |  46.719976 |               44 | 0 |
+|  141.605 |   44.22522 |               60 | 0 |
+|    158.8 |       50.9 |               20 | 0 |
+|  155.575 |  54.317642 |               37 | 0 |
+|  164.465 | 45.8978405 |               50 | 1 |
+|  151.765 |  48.024053 |               50 | 0 |
+|   161.29 |  52.219779 |               31 | 1 |
+|  154.305 |   47.62716 |               25 | 0 |
+|  145.415 |  45.642695 |               23 | 0 |
+|  145.415 |  42.410852 |               52 | 0 |
+|    152.4 | 36.4858065 |             79.3 | 1 |
+|   163.83 | 55.9335635 |               35 | 1 |
+|  144.145 |  37.194544 |               27 | 0 |
+|   153.67 |  48.307548 |               38 | 1 |
+|  142.875 | 37.3362915 |               39 | 0 |
+|  167.005 |  47.173568 |               30 | 1 |
+| 158.4198 |  47.286966 |               24 | 0 |
+|  165.735 |  57.549485 |               51 | 1 |
+|   149.86 |  37.931631 |               46 | 0 |
+|   154.94 | 47.2019175 |               22 | 0 |
+| 160.9598 |  43.204638 |               29 | 1 |
+|  161.925 | 50.2636635 |               38 | 1 |
+|  147.955 | 39.3774555 |               30 | 0 |
+|  159.385 |     50.689 |               45 | 1 |
+|   148.59 | 39.4341545 |               47 | 0 |
+|  136.525 |   36.28736 |               79 | 0 |
+|  158.115 |  46.266384 |               45 | 1 |
+|   144.78 | 42.2691045 |               54 | 0 |
+|  156.845 |   47.62716 |               31 | 1 |
+|   179.07 | 55.7067675 |               23 | 1 |
+|   170.18 | 48.5626935 |               41 | 1 |
+|   146.05 |  42.807745 |               23 | 0 |
+|   147.32 | 35.0683315 |               36 | 0 |
+|   162.56 |  56.755699 |               30 | 0 |
+|    152.4 |  51.255896 |               34 | 0 |
+|   160.02 |  47.230267 |               44 | 1 |
+|   149.86 |  40.936678 |               43 | 0 |
+|  142.875 |  32.715323 |             73.3 | 0 |
+|  167.005 | 57.0675435 |               38 | 1 |
+|  159.385 |  42.977842 |               43 | 1 |
+|   154.94 | 39.9444455 |               33 | 0 |
+|   162.56 | 45.9545395 |               35 | 1 |
+|    152.4 |  41.106775 |               29 | 0 |
+|   170.18 | 47.5988105 |               58 | 1 |
+|   146.05 | 37.5063885 |               53 | 0 |
+|  159.385 |  45.019006 |               51 | 1 |
+|   151.13 | 42.2691045 |               48 | 0 |
+|  160.655 | 54.8562825 |               29 | 1 |
+|  169.545 |  53.523856 |               41 | 1 |
+|   158.75 | 52.1914295 |            81.75 | 1 |
+|   149.86 |  42.410852 |               35 | 0 |
+|  153.035 | 49.5832755 |               46 | 0 |
+|  161.925 |  41.730464 |               29 | 1 |
+|   162.56 |  56.018612 |               42 | 1 |
+|  149.225 | 42.1557065 |               27 | 0 |
+|  163.195 | 53.0986135 |               22 | 1 |
+|  161.925 |  50.235314 |               43 | 1 |
+|  145.415 |   42.52425 |               53 | 0 |
+|  163.195 |  49.101334 |               43 | 1 |
+|   151.13 |  38.498621 |               41 | 0 |
+|  150.495 | 49.8100715 |               50 | 0 |
+|  170.815 |  59.760746 |               33 | 1 |
+|   157.48 | 47.9390045 |               62 | 1 |
+|    152.4 |  39.292407 |               49 | 0 |
+|   147.32 | 36.8826995 |               22 | 0 |
+|  145.415 |  42.127357 |               29 | 0 |
+|   157.48 |  44.565414 |               33 | 1 |
+|  154.305 |  47.853956 |               34 | 0 |
+|  167.005 | 55.1964765 |               42 | 1 |
+|  142.875 |  32.998818 |               40 | 0 |
+|    152.4 |  40.879979 |               27 | 0 |
+|      160 |       51.2 |               25 | 1 |
+|  159.385 |  49.044635 |               29 | 1 |
+|   149.86 | 53.4388075 |               45 | 0 |
+|  160.655 |  54.090846 |               26 | 1 |
+|  160.655 | 55.3665735 |               45 | 1 |
+|  149.225 |  42.240755 |               45 | 0 |
+|   140.97 |  40.936678 | 85.5999999999999 | 0 |
+|   154.94 | 49.6966735 |               26 | 1 |
+|  141.605 |  44.338618 |               24 | 0 |
+|   160.02 | 45.9545395 |               57 | 1 |
+| 150.1648 |   41.95726 |               22 | 0 |
+|  155.575 |  51.482692 |               24 | 0 |
+|   156.21 |  44.111822 |               21 | 0 |
+|  153.035 |  32.205032 |               79 | 0 |
+|  167.005 |  56.755699 |               50 | 1 |
+|   149.86 |  52.673371 |               40 | 0 |
+|  147.955 | 36.4858065 |               64 | 0 |
+|  159.385 | 48.8461885 |               32 | 1 |
+|  161.925 | 56.9541455 |             38.7 | 1 |
+|  155.575 | 42.0990075 |               26 | 0 |
+|  159.385 |  50.178615 |               63 | 1 |
+|  146.685 |  46.549879 |               62 | 0 |
+|   172.72 |   61.80191 |               22 | 1 |
+|   166.37 |  48.987936 |               41 | 1 |
+|  141.605 |  31.524644 |               19 | 1 |
+|  151.765 | 35.2951275 |               74 | 0 |
+|  156.845 |  45.642695 |               41 | 1 |
+|   148.59 |  43.885026 |               33 | 0 |
+|   157.48 | 45.5576465 |               53 | 0 |
+|   149.86 |  39.008912 |               18 | 0 |
+|  147.955 |  41.163474 |               37 | 0 |
+|  153.035 |  45.245802 |               61 | 0 |
+|  160.655 |  53.637254 |               44 | 1 |
+|  149.225 | 52.3048275 |               35 | 0 |
+|   138.43 | 39.0939605 |               23 | 0 |
+|   162.56 |  45.699394 |               55 | 1 |
+|  149.225 | 40.3980375 |               53 | 0 |
+|   158.75 |  51.482692 |               59 | 1 |
+|   149.86 |  38.668718 |               57 | 0 |
+|  158.115 |  39.235708 |               35 | 1 |
+|   156.21 |  44.338618 |               29 | 0 |
+|   148.59 |  39.519203 |               62 | 1 |
+|   143.51 |  31.071052 |               18 | 0 |
+|  154.305 |  46.776675 |               51 | 0 |
+|   157.48 | 40.6248335 |               19 | 1 |
+|   157.48 |  50.178615 |               42 | 1 |
+|  154.305 |  41.276872 |               25 | 0 |
+|  168.275 |       54.6 |               41 | 1 |
+|  145.415 | 44.9906565 |               37 | 0 |
+|  149.225 | 35.8054185 |               82 | 1 |
+|   154.94 | 45.2174525 |               28 | 1 |
+|   162.56 | 48.1091015 |               50 | 1 |
+|  156.845 | 45.6710445 |               43 | 0 |
+| 161.0106 |  48.420946 |               31 | 1 |
+|   144.78 | 41.1918235 |               67 | 0 |
+|   143.51 | 38.4135725 |               39 | 0 |
+|  149.225 |  42.127357 |               18 | 0 |
+|   149.86 | 38.2434755 |               48 | 0 |
+|  165.735 | 48.3358975 |               30 | 1 |
+|  144.145 | 38.9238635 |               64 | 0 |
+|   157.48 |  40.029494 |               72 | 1 |
+|  154.305 | 50.2069645 |               68 | 0 |
+|   163.83 | 54.2892925 |               44 | 1 |
+|   156.21 |       45.6 |               43 | 0 |
+|  144.145 | 39.4341545 |               34 | 0 |
+|   162.56 |  43.204638 |               62 | 1 |
+|   146.05 |  31.864838 |               44 | 0 |
+|   154.94 | 45.4442485 |               31 | 1 |
+|   144.78 |  38.045029 |               29 | 0 |
+|  146.685 | 36.0889135 |               62 | 0 |
+|    152.4 |  40.879979 |               67 | 0 |
+|   163.83 |  47.910655 |               57 | 1 |
+|  165.735 | 47.7122085 |               32 | 1 |
+|   156.21 |  46.379782 |               24 | 0 |
+|    152.4 |  41.163474 |               77 | 1 |
+|  140.335 | 36.5992045 |               62 | 0 |
+|  163.195 |  48.137451 |               67 | 1 |
+|   151.13 | 36.7126025 |               70 | 0 |
+| 171.1198 | 56.5572525 |               37 | 1 |
+|   149.86 | 38.6970675 |               58 | 0 |
+|   163.83 | 47.4854125 |               35 | 1 |
+|  141.605 | 36.2023115 |               30 | 0 |
+|  149.225 |  41.276872 |               26 | 0 |
+|   146.05 | 44.7638605 |               21 | 0 |
+|   161.29 | 50.4337605 |               41 | 1 |
+|   162.56 |  55.281525 |               46 | 1 |
+|  145.415 |  37.931631 |               49 | 0 |
+|  170.815 |  58.456669 |               28 | 1 |
+|  159.385 | 44.4236665 |               83 | 0 |
+|    159.4 |       44.4 |               54 | 1 |
+|   153.67 |  44.565414 |               54 | 0 |
+|   160.02 |  44.622113 |               68 | 1 |
+|  150.495 |  40.483086 |               68 | 0 |
+|  149.225 | 44.0834725 |               56 | 0 |
+|  142.875 |  34.416293 |               57 | 0 |
+|  142.113 |  32.772022 |               22 | 0 |
+|   147.32 |  35.947166 |               40 | 0 |
+|   162.56 |    49.5549 |               19 | 1 |
+|  164.465 |  53.183662 |               41 | 1 |
+|   160.02 |  37.081146 | 75.9000000000001 | 1 |
+|   153.67 | 40.5114355 | 73.9000000000001 | 0 |
+|  167.005 | 50.6038575 |               49 | 1 |
+|   151.13 | 43.9700745 |               26 | 1 |
+|  153.035 |      49.89 |               88 | 1 |
+|  139.065 | 33.5941575 |               68 | 0 |
+|    152.4 | 43.8566765 |               33 | 1 |
+|   154.94 |  48.137451 |               26 | 0 |
+|  147.955 |  42.751046 |               56 | 0 |
+|  144.145 |  33.906002 |               34 | 0 |
+|  155.575 | 39.7176495 |               74 | 1 |
+|  150.495 |  35.947166 |               69 | 0 |
+|  155.575 |  50.915702 |               50 | 1 |
+|  154.305 |  45.756093 |               44 | 0 |
+|   157.48 |  49.214732 |               18 | 0 |
+|   168.91 | 58.8252125 |               41 | 1 |
+|  150.495 | 43.4597835 |               27 | 0 |
+|   160.02 | 51.9646335 |               38 | 1 |
+|   167.64 |  50.688906 |               57 | 1 |
+|  144.145 |  34.246196 |             64.5 | 0 |
+|  145.415 | 39.3774555 |               42 | 0 |
+|   160.02 | 59.5622995 |               24 | 1 |
+|  164.465 |   52.16308 |               71 | 1 |
+|  153.035 |  39.972795 |             49.5 | 0 |
+|  149.225 |  43.941725 |               33 | 1 |
+|   160.02 |  54.601137 |               28 | 0 |
+|  149.225 |  45.075705 |               47 | 0 |
+|   153.67 |  41.333571 |               27 | 0 |
+|  150.495 |  41.900561 |               55 | 0 |
+|  151.765 |     42.524 | 83.4000000000001 | 1 |
+|  158.115 |  43.147939 |               63 | 1 |
+|  149.225 |   40.82328 |               52 | 0 |
+|  151.765 |  42.864444 |               49 | 1 |
+|   154.94 |  46.209685 |               31 | 0 |
+|   161.29 |  47.853956 |               35 | 1 |
+|   148.59 |   42.52425 |               35 | 0 |
+|  160.655 | 48.5059945 |               24 | 1 |
+|   157.48 |  45.869491 |               41 | 1 |
+|  167.005 |  52.900167 |               32 | 1 |
+|   157.48 |  47.570461 |               43 | 1 |
+|    152.4 |  43.544832 |               63 | 0 |
+|    152.4 |  43.431434 |               21 | 0 |
+|  161.925 | 53.2120115 |               55 | 0 |
+|    152.4 |  44.678812 |               38 | 0 |
+|  159.385 | 47.2019175 |               28 | 1 |
+|   142.24 | 31.6663915 |               36 | 0 |
+|   168.91 | 56.4438545 |               38 | 1 |
+|   160.02 |  55.791816 |               48 | 1 |
+|  158.115 | 47.4854125 |               45 | 1 |
+|    152.4 | 45.1607535 |               38 | 0 |
+|  155.575 |  45.529297 |               21 | 0 |
+|  154.305 |  48.874538 |               50 | 0 |
+|  156.845 | 46.5782285 |               41 | 1 |
+|   156.21 |  43.885026 |               30 | 0 |
+|  168.275 | 56.0469615 |               21 | 1 |
+|  147.955 |  40.086193 |               38 | 0 |
+|   157.48 |  50.802304 |               19 | 0 |
+|    160.7 |       46.3 |               31 | 1 |
+|   161.29 | 49.3564795 |               21 | 1 |
+|  150.495 |  44.111822 |               50 | 0 |
+|  163.195 |    51.0291 |               39 | 1 |
+|   148.59 |  40.766581 |               44 | 1 |
+|   148.59 | 37.5630875 |               36 | 0 |
+|  161.925 |   51.59609 |               36 | 1 |
+|   153.67 | 44.8205595 |               18 | 0 |
+|   151.13 | 43.4030845 |               58 | 0 |
+|   163.83 |  46.719976 |               58 | 1 |
+|  153.035 | 39.5475525 |               33 | 0 |
+|  151.765 | 34.7848365 |             21.5 | 0 |
+|   156.21 |  39.292407 |               26 | 1 |
+|  140.335 | 37.4496895 |               22 | 0 |
+|   158.75 | 48.6760915 |               28 | 1 |
+|  142.875 |  35.606972 |               42 | 0 |
+| 151.9428 |  43.714929 |               21 | 1 |
+|   161.29 |   48.19415 |               19 | 1 |
+| 160.9852 |  50.972401 |               48 | 1 |
+|   144.78 |  43.998424 |               46 | 0 |
+|   160.02 |   48.19415 |               25 | 1 |
+| 160.9852 | 46.6916265 |               51 | 1 |
+|  165.989 |  56.415505 |               25 | 1 |
+|  157.988 |  48.591043 |               28 | 1 |
+|   154.94 | 48.2224995 |               26 | 0 |
+|  160.655 | 47.4854125 |               54 | 1 |
+|   147.32 |  35.550273 |               66 | 0 |
+|    146.7 |       36.6 |               20 | 0 |
+|   147.32 | 48.9595865 |               25 | 0 |
+| 172.9994 |  51.255896 |               38 | 1 |
+|  158.115 | 46.5215295 |               51 | 1 |
+|   147.32 |  36.967748 |               48 | 0 |
+|  165.989 |  48.647742 |               27 | 1 |
+|   149.86 |  38.045029 |               22 | 0 |
+|  161.925 |  47.286966 |               60 | 1 |
+|   163.83 |  55.394923 |               43 | 1 |
+|   160.02 |  54.204244 |               27 | 1 |
+|   154.94 |  48.477645 |               30 | 1 |
+|    152.4 | 43.0628905 |               29 | 0 |
+|   146.05 |  34.189497 |               23 | 0 |
+| 151.9936 |  49.951819 |               30 | 0 |
+|  151.765 |  44.338618 |               41 | 0 |
+|   144.78 |   33.45241 |               42 | 0 |
+|  160.655 |  47.286966 |               43 | 1 |
+|   151.13 | 46.1246365 |               35 | 0 |
+|   153.67 |  47.400364 |             75.5 | 1 |
+|   147.32 | 40.8516295 |               64 | 0 |
+|    139.7 |  50.348712 |               38 | 1 |
+|   157.48 |  45.132404 |             24.2 | 0 |
+|   154.94 |  42.240755 |               26 | 1 |
+|   143.51 | 41.6454155 |               19 | 0 |
+|  158.115 | 45.2174525 |               43 | 1 |
+|   147.32 |  51.255896 |               38 | 0 |
+|   160.02 |  49.271431 |               23 | 1 |
+|    165.1 |  51.199197 |               49 | 1 |
+|   154.94 | 43.8566765 |               41 | 0 |
+|   153.67 | 35.5219235 |               23 | 0 |
+|  141.605 |   42.88542 |               43 | 0 |
+|   163.83 |  46.776675 |               21 | 1 |
+|   161.29 | 41.8722115 |               24 | 1 |
+|    154.9 |       38.2 |               20 | 1 |
+|    161.3 |       43.3 |               20 | 1 |
+|   170.18 |  53.637254 |               34 | 1 |
+|   149.86 |  42.977842 |               29 | 0 |
+|  160.655 | 39.7743485 |               65 | 1 |
+|   154.94 | 43.3463855 |               46 | 0 |
+|   166.37 |  52.673371 |               43 | 1 |
+| 148.2852 |  38.441922 |               39 | 0 |
+|  151.765 |  42.807745 |               43 | 0 |
+|   148.59 |  35.890467 |               70 | 0 |
+|   153.67 |   44.22522 |               26 | 0 |
+|  146.685 | 38.0733785 |               48 | 0 |
+|   154.94 |  44.111822 |               44 | 1 |
+|   156.21 | 44.0267735 |               33 | 0 |
+|  160.655 | 47.8823055 |               41 | 1 |
+|   146.05 |  39.405805 |             37.4 | 0 |
+|   156.21 |  41.050076 |               53 | 1 |
+|    152.4 |   40.82328 |               49 | 0 |
+|   162.56 | 47.0318205 |               27 | 0 |
+|  142.875 |  34.246196 |               31 | 0 |
+|   162.56 |   52.16308 |               31 | 1 |
+|   156.21 | 54.0624965 |               21 | 0 |
+|   158.75 | 52.5316235 |               68 | 1 |
+
+#+BEGIN_SRC R 4.25
+flist <- alist(
+    height ~ dnorm(mu, sigma),
+    mu ~ dnorm(178, 20),
+   sigma ~ dunif(0, 50)
+)
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R 4.26
+m4.1 <- map(flist, data=d2)
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R 4.27 
+precis(m4.1)
+
+#+END_SRC
+
+#+END_EXPORT
+the estimate for sigma has changed quite a lot even though we didn't change its prior. The
+golem has to estimate sigma conditional on the fact that its quite certain about the
+mean. 
+
+#+RESULTS:
+
+#+BEGIN_SRC R 4.24 results: precis(m4.1) 
+library(rethinking)
+data(Howell1)
+d <- Howell1
+d2 <- d[d$age >= 18,]
+
+flist <- alist(height ~ dnorm(mu, sigma),
+               mu ~ dnorm(178, 20),
+               sigma ~ dunif(0, 50)
+               )
+
+m4.1 <- map(flist, data=d2)
+
+precis(m4.1)
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R 4.29 results: precis(m4.2)
+m4.2 <- map(alist(height ~ dnorm(mu, sigma),
+                  mu ~ dnorm(178, 0.1),
+                  sigma ~dunif(0, 50)
+                  ),
+            data=d2)
+
+precis(m4.2)
+
+#+END_SRC
+
+
+
+
+#+RESULTS:
+
+
+How to compute the implied amount of data from a prior?
+The sd of a Guassian posterior for \mu 
+$\sigma_post_ = \frac{1}{\sqrt{n}}$
+
+
+** 4.3.6. Sample from a map fit 
+
+    How do you get samples from the quadratic approximate posterior distribution?
+    A map with more than one parameter dimension is a multidimensial Guassian
+    distribution.
+
+    A list of means and a matrix of variances and covariances are sufficient to describe a
+    multi-dimensional Guassian distribution. This tells us how each paramater relates to
+    every other parameter in the posterior distribution.
+
+#+BEGIN_SRC R 4.30 results: vcov(m4.1) 
+vcov(m4.1)
+#+END_SRC
+
+#+RESULTS:
+|    0.169741932105186 | 0.000216533783737217 |
+| 0.000216533783737217 |   0.0849087342207971 |
+
+A variance-covariance matrix can be factored into two elements:
+1. a vector of variances for the parameters
+2. a correlation matrix that tells us hwo changes in any parameter lead to correlated
+   changes in the others. 
+
+#+BEGIN_SRC R 4.31
+diag(vcov(m4.1))
+cov2cor(vcov(m4.1))
+
+#+END_SRC
+
+#+RESULTS:
+|                   1 | 0.00180366098395109 |
+| 0.00180366098395109 |                   1 |
+
+Typically of simple Guassian models is that \mu tells us nothing about \sigma and vice
+versa. This is quite rare in actuality.
+
+Rather than sampling single values from a Gaussian distribution, we sample vecors of
+values from a multidimensial Gaussian distribution. 
+
+#+BEGIN_SRC R 4.32 
+library(rethinking)
+post <- extract.samples(m4.1, n=1e4)
+
+# extract.samples under the hood
+# library(MASS)
+# post <- mvrnomr(n=1e4, mu=coef(m4.1), Sigma=vcov(m4.1))
+head(post)
+
+#+END_SRC
+
+#+RESULTS:
+| 154.404166290127 | 7.14677084265942 |
+| 154.620154109249 | 8.22480429247384 |
+| 154.218898347368 | 7.81085211488029 |
+| 154.697901097593 |   7.627798677153 |
+| 154.403756996495 | 8.09567260376473 |
+| 154.608577365734 | 7.32312936251638 |
+
+The mean and sd of each column will be very close to the MAP values from before. 
+
+If we impose the quadratic approximation on the logarithm, rather than the sd itself, we
+can often get a better approximation of the uncertainty. 
+
+#+BEGIN_SRC R 4.35 
+m4.1_logsigma <- map(alist(height ~ dnorm(mu, exp(log_sigma))
+                           mu ~ dnorm(178, 20),
+                           log_sigma ~ dnorm(2, 10)
+                           ), data=d2)
+
+post <- extract.samples(m4.1_logsigma)
+sigma<- exp(post$log_sigma)
+
+#+END_SRC
+
+For a lot of data this won't make a difference, but the use of /exp/ to constrain a
+parameter to be positive is a robust and a useful one > this relates to /link functions/
+(chapter 9)
+* 4.4 Adding a predictor
+
+How do height and weight covary?
+
+#+BEGIN_SRC R 4.37 
+plot(d2$height ~ d2$weight)
+
+#+END_SRC
+
+#+RESULTS:
+
+** 4.4.1 The Linear model strategy
+
+The strategy is to make the parameter for the mean of a Gaussian distribution, /mu/, into
+a linear function of the predictor variable and other, new parameters we invent. (92)
+
+We define mean \mu as a function of the values in $x$ (in this case measurements of
+weight)
+
+*** 4.4.1.1. Likelihood
+$h_i ~ Normal(\mean_i, \sigma)$
+
+*** 4.4.1.2. Linear Model
+\sigma_i is constructed from other parameters, \alpha and \beta, and the predictor
+variable $x$. This is no stochastic relationship, not probabilistic but deterministic. 
+
+\Alpha (intercept) and \beta (slope) are 'devices' we invent for manipulating \mu, allowing it to vary
+systematically across cases in the data. They are /targets of learning/
+
+*** 4.4.1.3. Priors
+
+Definie priors for the parameters to be estimated: \alpha, \beta, and \sigma. 
+There are no wrong priors. They encode information before seeing data. 
+
+** 4.4.2. Fitting the model 
+
+#+BEGIN_SRC R 4.38 :results:d
+library(rethinking)
+data(Howell1)
+d <- Howell1
+
+d2 <- d[d$age >= 18,]
+
+                                        # fit model
+m4.3 <- map(
+    alist(
+        height ~ dnorm(mu, sigma),
+        mu <- a + b * weight,
+        a ~ dnorm(156,100),
+        b ~ dnorm(0, 10),
+        sigma ~ dunif(0, 50)
+    ),
+    data=d2)
+
+precis(m4.3)
+
+#+END_SRC
+
+#+RESULTS:
+
+** 4.4.3. Interpreting the model fit
+
+Two categories of processing: 1. reading tables, and 2. plotting. 
+
+Plotting estimates allows us to understand.
+1. whether or not the model fitting procedure worked correctly
+2. the /absolute/ magnitude, rather than merely the /relative/ magnitude of a relationship
+   between outcome and predictor
+3. the uncertainty surrounding an average relationship
+4. the uncertainty surrounding the implied predictions of the model, as these are distinct
+   from mere parameter uncertainty.
+
+*Centering* which aids in interpreting estimates. 
+
+/Posterior probabilities of parameter values describe the relative compatibility of
+different states of the world with the data, according to the model/
+
+*** 4.4.3.1. Tables of estimates
+
+Often we need weak priors for intercepts. 
+The \alpha and \beta are negatively correlated. They carry the same information. 
+In more complex models, strong correlations, make it difficult to fit the model to the
+data. 
+
+We use *centering* to avoid this > this is the procedure of subtracting the mean of
+variable from each value. 
+
+Creating a centered version of the weight variable:
+
+#+BEGIN_SRC R 4.42 results: precis(m4.4, corr=TRUE) 
+d2$weight.c <- d2$weight - mean(d2$weight)
+
+                                        # fit model
+m4.4 <- map(
+    alist(
+        height ~ dnorm(mu, sigma),
+        mu <- a + b * weight.c,
+        a ~ dnorm(178,100),
+        b ~ dnorm(0, 10),
+        sigma ~ dunif(0, 50)
+    ),
+    data=d2)
+
+precis(m4.4, corr=TRUE)
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R
+precis(m4.4, corr=TRUE)
+
+#+END_SRC
+
+#+RESULTS:
+
+*** 4.4.3.2. Plotting posterior inference against the data
+
+#+BEGIN_SRC R 4.45 
+plot(height ~ weight, data=d2)
+abline(a=coef(m4.3)["a"], b=coef(m4.3)["b"])
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R
+post <- extract.samples(m4.3)
+post[1:5,]
+
+#+END_SRC
+
+#+RESULTS:
+| 114.409458086509 | 0.887843936757889 | 5.10067393455487 |
+| 113.764415708493 | 0.907280111238195 | 5.54739911126306 |
+| 113.192667618701 | 0.923833897399328 | 5.28500423367689 |
+| 115.728369432898 | 0.857006715665892 | 5.25687802805366 |
+|  112.03756452187 | 0.947537802190547 | 5.08680081445428 |
+
+
+#+BEGIN_SRC R 4.48 
+N <- 10
+dN <- d2[1:N,]
+mN <- map(
+    alist(
+        height ~ dnorm(mu, sigma),
+        mu <- a + b * weight,
+        a ~ dnorm(178, 100),
+        b ~ dnorm(0, 10),
+        sigma ~dunif(0,50)
+    ), data=dN)
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R 4.49 
+# extract 20 samples from posterior
+post <- extract.samples(mN, n=200)
+
+# display raw data
+plot (dN$weight, dN$height,
+      xlim=range(d2$weight), ylim=range(d2$height),
+      col=rangi2, xlab='weight', ylab='height')
+mtext(concat("N = ", N))
+
+                                        # plot the lines, with transparency
+for (i in 1:200)
+    abline(a =post$a[i], b=post$b[i], col=col.alpha('black', 0.3))
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R 4.50 
+mu_at_50 <- post$a + post$b * 50
+dens(mu_at_50, col=rangi2, lwd=2, xlab="mu|weight=50")
+
+#+END_SRC
+
+#+RESULTS:
+
+
+#+BEGIN_SRC R results: str(mu)
+
+weight.seq <- seq(from=25, to=70, by=1)
+mu <- link(m4.3, data=data.frame(weight=weight.seq))
+
+#plot(height ~ weight, d2, type="n")
+
+# loop over samples
+#for (i in 1:100)
+#    points(weights.seq, mu[i,], pch=16, col=col.alpha(rangi2, 0.1))
+
+
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC R 4.57 
+mu.mean <- apply(mu, 2, mean)
+mu.HPDI <- apply(mu, 2, HPDI, prob=0.89)
+
+plot(height ~ weight, data=d2, col=col.alpha(rangi2,0.5))
+
+lines(weights.seq, mu.mean)
+shape(mu.HPDI, weight.seq)
+
+#+END_SRC
+
+#+RESULTS:
+
+1. use link to generate distrubtions of posterior values of /mu. 
+2. use summary functions like mean or HPDI, or PI to find averages and lower and upper
+   bounds of /mu/ for each value of the predictor variable.
+3. Use plotting functions like lines and shades to draw the lines and intervals. 
+
+
+Simulate heights that embody the uncertainty in the posterior as well as the uncertainty
+in the Guassian likelihood. 
+
+#+BEGIN_SRC R 4.59 
+
+sim.height <- sim(m4.3, data=list(weight=weight.seq))
+str(sim.height)
+
+#+END_SRC
+
+#+RESULTS:
+
+This results contains simulated heights, not distributions of plausible average height \mu
+
+#+BEGIN_SRC R 4.60 
+height.PI <- apply(sim.height, 2, PI, prob=0.89)
+
+#+END_SRC
+
+* 4.5. Polynomial Regression
+
+#+BEGIN_SRC R 4.64 :results output graphics :file 4.64.png 
+library(rethinking)
+data(Howell1)
+d <- Howell1
+str(d)
+plot(height ~ weight, d)
+#+END_SRC
+
+#+RESULTS:
+[[file:4.64.png]]
+
+Polynomials are hard to interpet, better would be a more mechanistic model of the data,
+one that builds the non-linear relationship up from a principled beginning. 
+
+*Standardization* why?
+1. interpretation might be easier. For a standardized variable, a change of one unit is
+   equivalent to a change of one standard deviation. 
+2. Advantages for fitting the model. Numerical glitches when using squares or cubes. 
+
+#+BEGIN_SRC R 4.65 :results output
+
+d$weight.s <- (d$weight - mean(d$weight)) / sd(d$weight)
+
+d$weight.s2 <- d$weight.s^2
+
+m4.5 <- map(
+    alist(height ~ dnorm(mu, sigma),
+          mu <- a + b1*weight.s + b2*weight.s2,
+          a ~ dnorm(178,100),
+          b1 ~ dnorm(0, 10),
+          b2 ~ dnorm(0,10),
+          sigma ~ dunif(0, 50)
+          ),
+    data=d)
+
+precis(m4.5)
+#+END_SRC
+
+#+RESULTS:
+: 
+:         Mean StdDev   5.5%  94.5%
+: a     146.66   0.37 146.07 147.26
+: b1     21.40   0.29  20.94  21.86
+: b2     -8.42   0.28  -8.87  -7.97
+: sigma   5.75   0.17   5.47   6.03
+
+#+BEGIN_SRC  R 4.68 
+weight.seq <- seq(from=-2.2, to=2, length.out=30)
+pred_dat <- list(weight.s=weight.seq, weight.s2=weight.seq^2)
+mu <- link(m4.5, data=pred_dat)
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI, prob=0.89)
+sim.height <- sim(m4.5, data=pred_dat)
+height.PI <- apply(sim.height, 2, PI, prob=0.89)
+
+#+END_SRC
+#+RESULTS:
+| 49.6096020616428 | 57.8359581113328 | 65.6917252619915 | 72.6630803570419 | 80.9022860658517 | 87.8440520031419 | 94.4528176620028 | 100.023528486504 | 106.523205663009 |  111.24394417201 | 116.918920747732 | 121.315958579573 | 126.095929685941 |   130.2523753856 | 133.854650828481 | 136.781327567208 | 139.655234702904 | 142.326109850028 | 144.840809558987 | 146.633704626558 | 148.219183389379 | 149.429020274427 | 150.149417466806 | 150.713701062711 | 150.795887827649 | 150.648446657534 | 150.189415558761 | 149.714967721581 | 148.082108327655 | 145.674091120343 |
+| 67.8886989535954 | 76.1288168115229 | 84.2032355529272 | 92.0184544640718 | 98.5982519039942 | 105.946696400152 | 112.492893645611 | 118.439591146338 | 124.862951285265 | 129.558694852164 | 134.874866984907 | 139.776709916118 | 143.829566738716 | 148.190871489594 | 151.819454890231 | 154.792496898875 | 158.406401440968 | 160.168779357356 | 163.634179262995 | 165.289017113797 | 166.790954531968 | 168.557638991265 | 169.155740086078 | 169.198168409687 | 169.677868737759 | 169.421240070142 |  169.08425598567 | 167.418565801492 | 166.313186969388 | 164.792286805731 |
+
+#+BEGIN_SRC R 4.69 :results output graphics :file 4.69.png 
+plot(height ~ weight.s, d, col=col.alpha(rangi2,0.5))
+lines(weight.seq, mu.mean)
+shade(mu.PI, weight.seq)
+shade(height.PI, weight.seq)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:4.69.png]]
+
+#+BEGIN_SRC R :results output graphics :file 4.72.png
+d$weight.s3 <- d$weight.s^3
+m4.6 <- map(
+    alist(
+        height ~ dnorm(mu, sigma),
+        mu <- a + b1*weight.s + b2*weight.s2 + b3*weight.s3,
+        a ~ dnorm(178, 100),
+        b1 ~ dnorm(0, 10),
+        b2 ~ dnorm(0, 10),
+        b3 ~ dnorm(0, 10),
+        sigma ~ dunif(0, 50)
+    ),
+    data =d)
+
+plot(height~weight.s, d, col=col.alpha(rangi2, 0.5), xaxt='n')
+at <- c(-2,-1,0,1,2)
+labels <- at*sd(d$weight) + mean(d$weight)
+axis(side=1, at=at, labels=round(labels,1))
+
+#+END_SRC
+
+#+RESULTS:
+[[file:4.72.png]]
+
+* 4.7. Practice
+
+** 4E1
+
+The likelihood is: 
+
+$y_i ~ Normal(\mu, \sigma)$
+
+** 4E2
+
+There are two parameters in the posterior distribution, \mu and \sigma
+
+** 4E3
+
+Use example on p.83
+
+** 4E4
+
+\mu_i = \alpha + \beta x_i is the linear model.
+
+** 4E5
+
+There are three paramters in the model: \alpha, \beta, and \sigma.
+
+** 4M1
+Simulate observed heights from the prior (not the posterior)
+
+#+BEGIN_SRC R :results output graphics :file 4m1.png
+sample_mu <- rnorm(1e4, 0, 10)
+sample_sigma <- runif(1e4, 0, 10)
+prior_y <- rnorm(1e4, sample_mu, sample_sigma)
+dens(prior_y)
+
+
+#+END_SRC
+
+#+RESULTS:
+[[file:4m1.png]]
+
+** 4M2
+Translate the model into a map formula
+
+#+BEGIN_SRC R :results output graphics :file 4m2.png
+flist <- alist(
+    height ~ dnorm(mu, sigma)
+    mu ~ dnorm(0, 10)
+    sigma ~ dnunif(0, 10)
+)
+#+END_SRC
+
+#+RESULTS:
+[[file:4m2.png]]
+
+** 4M3
+
+y_i ~ Normal(mu_i, sigma)
+mu_i = \alpha + \beta*x_i
+\alpha ~ Normal(0, 50)
+\beta ~ Uniform(0,10)
+\sigma ~ Uniform(0,50)
+
+** 4M4
+h_i ~ Normal(\mu, \sigma)
+u_i = \alpha + \beta*x_i
+\alpha ~ Normal(150, 20)
+\beta ~ Uniform(4, 2)
+\sigma ~ Uniform(0, 50)
+
+I don't know how old these students are. Since they are students, I take a very
+conservative length of 150, with a spread of 20. 
+Also per per they can grow with 4 cm with a spread of 3. 
+The sigma allows for quite some variation in the relationship between age and height.
+
+** 4M5
+I would lower the alpha to 120 with less deviations. 
+Also the beta could be higher since this are probably younger studnets that grow faster. 
+Also sigma can be tighter since it's probably a group of younger students. 
+
+** 4M6
+I would change h_i to Normal(120, 10) This also give room for old students, but it stays
+within the growth rate.  
+And also change sigma to Uniform(0,8)
+
+** COMMENT 4H1 
+
+#+BEGIN_SRC R :results output
+library(rethinking)
+data(Howell1)
+d <- Howell1
+
+model <- map(
+    alist(
+        height ~ dnorm(mu, sigma),
+        mu <- a + b * weight,
+        a ~ dnorm(178, 100),
+        b ~ dnorm(0, 10),
+        sigma ~ dunif(0, 50)
+), data=d)
+
+weight_add <- c(46.95, 43.72, 64.78, 32.59, 54.63)
+heights <- link(model, data=data.frame(weight = weight_add))
+
+mu.mean <- apply(heights, 2, mean)
+mu.HPDI <- apply(heights, 2, HPDI, prob=0.89)
+
+data.frame(
+    indiviual = 1:5,
+    weight = weight_add,
+    expected_height = mu.mean,
+    interval_l = mu.HPDI[1,],
+    interval_h = mu.HPDI[2,]
+)
+#+END_SRC
+
+#+RESULTS:
+: 
+: [ 100 / 1000 ][ 200 / 1000 ][ 300 / 1000 ][ 400 / 1000 ][ 500 / 1000 ][ 600 / 1000 ][ 700 / 1000 ][ 800 / 1000 ][ 900 / 1000 ][ 1000 / 1000 ]
+: 
+:   indiviual weight expected_height interval_l interval_h
+: 1         1  46.95        158.2730   157.4952   158.9983
+: 2         2  43.72        152.5727   151.8487   153.2312
+: 3         3  64.78        189.7393   188.4583   191.0994
+: 4         4  32.59        132.9305   132.2200   133.5542
+: 5         5  54.63        171.8266   170.8187   172.7646
+
+** 4H2
+
+#+BEGIN_SRC R :results ouput graphics :file 4h2.png
+d_young <- d[d$age < 18,]
+nrow(d_young)
+
+                                        #a) fit a linear regression using map. Present and predict the estimates. For every 10 units of increase in weight, how much tall does the model predict a child gets?
+
+m_4h2 <- map(
+    alist(
+        height ~ dnorm(mu, sigma),
+        mu <- a + b * weight,
+        a ~ dnorm(150, 50),
+        b ~ dnorm(0, 10),
+        sigma ~ dunif(0, 50)
+    ), data=d)
+
+precis(m_4h2)
+# Person with weight 0 length of 75.44 (intercept)
+# For every 10 units of weight 10.76 increase in centimers (10*b)
+
+#b) Plot the raw data, with height on the vertical axis and weight on the horizontal axis. 
+#Super- impose the MAP regression line and 89% HPDI for the mean. 
+#Also superimpose the 89% HPDI for predicted heights.
+
+plot(height ~ weight, data=d_young, col=col.alpha(rangi2, 0.5))
+
+weight.seq <- seq(from=min(d_young$weight), to=max(d_young$weight), by=1)
+mu <- link(m_4h2, data=data.frame(weight=weight.seq))
+mu.mean <- apply(mu, 2, mean)
+mu.HPDI <- apply(mu, 2, HPDI, prob=.89)
+
+lines(weight.seq, mu.mean)
+shade(mu.HPDI, weight.seq)
+sim.height <- sim(m_4h2, data=list(weight = weight.seq))
+sim.heights.HPDI <- apply(sim.height, 2, HPDI, prob=.89)
+shade(sim.heights.HPDI, weight.seq)
+
+#C It doesnot explain the very low weights in the data very well. Probably I should increase the sigma (sd) 
+#+END_SRC
+
+
+#+RESULTS:
+[[file:4h2.png]]
+
+** 4H3 
+
+#+BEGIN_SRC R :results output graphics :file 4h3.png
+data(Howell1)
+d <- Howell1
+
+m_4h3 <- map(
+    alist(
+        height ~ dnorm(mu, sigma),
+        mu <- a + b * log(weight),
+        a ~ dnorm(178, 100),
+        b ~ dnorm(0, 100),
+        sigma ~ dunif(0, 50)
+    ), data=d)
+
+precis(m_4h3, corr=T)
+# The estimates make little sense to me
+
+plot(height ~ weight, data=d, col=col.alpha(rangi2, .4))
+
+weight.seq <- seq(from=min(d$weight), to=max(d$weight), by =1)
+mu <- link(m_4h3, data=data.frame(weight=weight.seq))
+mu.mean <- apply(mu, 2, mean)
+mu.HPDI <- apply(mu, 2, HPDI, prob=.97)
+
+lines(weight.seq, mu.mean)
+shade(mu.HPDI, weight.seq)
+
+sim.height <- sim(m_4h3, data=list(weight = weight.seq))
+sim.heights.HPDI <- apply(sim.height, 2, HPDI, prob=.97)
+shade(sim.heights.HPDI, weight.seq)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:4h3.png]]
+
+
+

@@ -1,0 +1,217 @@
+* Notes
+  :PROPERTIES:
+  :CUSTOM_ID: notes
+  :END:
+
+** Chapter 1
+   :PROPERTIES:
+   :CUSTOM_ID: chapter-1
+   :END:
+
+Introductory statistics tend to be /inflexible/ and /fragile/ meaning
+that they have limited ways to adapt to unique research contexts and
+they can fail in unpredictable ways when applied to new research
+contexts. (3)
+
+We cannot deduce that a hypothesis is false just because we reject a
+model deduced from it.(5)
+
+Focus in book is on: 1. Bayesian data analysis 2. Multilevel models 3.
+Model comparison using information criteria
+
+The frequentist approach requires that all probabilities be defined by
+connection to countable events and their frequencies in very large
+samples. (11)
+
+Why use multilevel models:
+
+1. To adjust estimates for repeat sampling
+2. To adjust estimates for imbalance in sampling
+3. To study variation
+4. To avoid averaging
+
+*multilevel regression deserves to be the default form of regression*
+
+AIC and its kin are known as 'information criteria' because they develop
+their measure of model accuracy from information theory. They help with
+(1) overfitting and (2) comparison of multiple non-null models to the
+same data.
+
+** Chapter 2
+   :PROPERTIES:
+   :CUSTOM_ID: chapter-2
+   :END:
+
+Designing a simple Bayesian model includes three steps:
+
+1. Data story: Motivate the model by narrating how the data might arise.
+2. Update: Educate your model by feeding it data
+3. Evaluate: All statistical models require supervision, leading
+   possibly to model revision.
+
+*** Components of a model
+    :PROPERTIES:
+    :CUSTOM_ID: components-of-a-model
+    :END:
+
+1. *Likelihood* - mathematical formula that specificies *the
+   plausibility of the data*. It maps each conjecture onto the relative
+   number of ways the data could occur, given that possibility.
+
+/binomial distribution/ in R: dbinom(observations, size, probability.)
+
+$L(p|w,n)$ equals the likelihood of /p/, conditional on /w/ and /n/.
+
+2. *Parameters* - adjustable inputs to the likelihood function, for
+   example $p$ (the probability of seeing a W), $n$ (the sample size),
+   and $w$ (the number of W's).
+
+Data are measured and known; parameters are unknown and must be
+estimated from data.
+
+3. *Prior* - the initial set of plausabilities.
+
+4. *Posterior* - the relative plausiblities of different parameter
+   values, conditional on the data.
+
+*Bayes' Theorem*: the probability of rain and cold on the same day is
+equal to the probability that it's cold when it's raining times the
+probability of rain. Put differently, the probability of any particular
+value of $p$, considering the data, is equal to the product of the
+likelihood and prior, divided by this thing Pr($w$), (average
+likelihood)
+
+The posterior is proportional to the product of the prior and the
+likelihood.
+
+*Bayesian approaches use Bayes' theorem to quantify uncertainty about
+theoretical entities that cannot be observed, like parameters and
+models.*
+
+*** Three numerical techniques for computing posterior distributions:
+    :PROPERTIES:
+    :CUSTOM_ID: three-numerical-techniques-for-computing-posterior-distributions
+    :END:
+
+1. Grid approximation Scales poorly. Steps involved include:
+
+- Define the grid
+- Compute the value of the prior at each parameter value on the grid
+- Compute the likelihood at each parameter value
+- Compute the unstandardized posterior at each parameter value, by
+  multiplying the prior by the likelihood.
+
+2. Quadratic approximation A posterior distribution (under most
+   conditions) can be approximated by a Gaussian distribution > which
+   can be described by two numbers: mean (center) and variance (spread).
+
+3. Markov chain Monte Carlo (MCMC) Draws samples from posterior. Build a
+   picture of the posterior from the histogram of these samples.
+
+** Chapter 3
+   :PROPERTIES:
+   :CUSTOM_ID: chapter-3
+   :END:
+  Peoople are more used to working with /frequency format/ or /natural frequencies/
+
+Randomness is always a property of the information, never of the real world. 
+
+Why adopt sampling approach:
+1. easier and more intuitive to work with samples from the posterior than to work with
+   probabilities and integrals directly.
+2. Numerous methods, such as MCMC, produce nothing but samples. 
+
+
+Summarize a posterior distribution by asking the following questions:
+- how much posterior probability lies below some parameter value?
+- how much posterior probability lies between two paramter values?
+- Which parameter value marks the lower 5% of the posterior probablity?
+- Which range of parameter values contains 90% of the posterior probability?
+- Which parameter value has highest posterior probability?
+
+These are questions about:
+*** 1. intervals of /defined boundaries/
+Add up all the probabilities less than value of, for example, 0.5 and divide by total
+number of samples
+
+*** 2. intervals of /defined probability mass/
+Also known as **confidence interval*, or *credible interval*
+
+Intervals that assign equal probability mass to each tail, are known as *percentile
+intervals (PI)* This works for symmetric distributions. 
+
+*Highest Posterior Density Interval (HPDI)* is the narrowest interval containing the
+specified probability mass. In most cases, similar to PI. 
+HPDI is more computationally intensive and suffers from greater /simulation variance/
+
+If the choice of interval type makes a big difference, then you shouldn't be using
+intervals to summarize the posterior. 
+
+*** 3. questions about /point estimates/
+*you don't have to choice a point estimate*
+It is common to report the parameter value with /highest posterior probability/, maximum a
+posteriori (MAP)
+
+A loss function is a rule that tells you the costs associated with using any particular
+point estimate. > Different loss functions imply different point estimates.
+
+The parameter value that minimizes expected loss is the median of the posterior. 
+
+communicate as much as you can about the posterior distribution, as well as the data and
+model itself. 
+
+*** Sampling to simulate prediction
+Generating implied observations from a model is useful for four reasons:
+1. /Model checking/ 
+Model checking means: 
+- ensuring the model fitting worked correctly
+how well does the model reproduce the data used to educate it.
+
+- evaluating the adequacy of a model for some purpose
+asses how the model fails to describe the data, as a path towards model comprehension,
+revision and improvement.
+for each possible value of $p$, there is an implied distribution of outcomes. > posterior
+predictive distribution. 
+2. /Software validation/
+3. /Research design/
+4. /Forecasting/
+
+Likelihood functions work in both directions (Bayesian models are /generative/):
+1. They allow us to infer the plausibility of each possible value of $p$, after
+   observation
+2. They also allow us to simulate the observations that the model implies
+
+Samples from the posterior distribution can be used to produce intervals, point estimates,
+posterior predictive checks. 
+
+Posterior predictive checks combine uncertainty about parameters, as described by the
+posterior distribution, with uncertainty about outcomes, as described by the assumed
+likelihood function.
+
+#+name: samples
+#+BEGIN_SRC R 
+p_grid <- seq(from=0, to=1, length.out=1000)
+prior <- rep(1, 1000)
+likelihood <- dbinom(6, size=9, prob=p_grid)
+posterior <- likelihood * prior
+posterior <- posterior / sum(posterior)
+set.seed(100)
+samples <- sample(p_grid, prob=posterior, size=1e4, replace=TRUE)
+
+#3E1
+mean(samples < 0.2)
+
+#3E2
+mean(samples > 0.8)
+
+#+END_SRC
+
+#+RESULTS:
+: 0.1117
+
+#+BEGIN_SRC R :3E1 input=samples
+mean(samples < 0.2)
+
+#+END_SRC
+
+#+RESULTS:

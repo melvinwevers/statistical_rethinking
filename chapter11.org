@@ -1,0 +1,2007 @@
+#+AUTHOR:Melvin Wevers
+#+TITLE: Chapter 11. Monsters and Mixtures
+#+PROPERTY: header-args :session :results value :cache no :exports both
+
+*Ordered Categorical* model, useful for categorical outcomes with a fixed ordering. This
+ model is built by merging a categorical likelihood function with a special kind of link
+ function, usually a *cumulative link*
+
+*Zero-inflated* and *zero-augmented* models, each of which mixes a binary event with an
+ ordinary GLM likelihood like a Poisson or binomial. 
+
+This can help us transform our modeling to cope with the inconvenient realities of
+measurements, rather than transforming measurements. 
+
+Just be sure to validate mixture models by simulating dummy data and then recovering the
+data-generating process through fitting the model to the dummy data. 
+
+* 11.1 Ordered categorical outcomes
+
+It is common to have a outcome variable that is discrete but in which the values indicate
+different ordered levels along some dimension. (for example likert scale).
+
+Multinomial prediction problem with constraint that categories need to be ordered. 
+
+- Problem: how to ensure that linear model maps onto the outcomes in the right order?
+- Solution: *cumulative link function* > the cumulative probability of a value is the
+  probability of that value /or any smaller value/.
+
+1. how to parameterize a distribution of outcomes on the scale of log-cumulative odds.
+2. introduce a predictor (or more than 1) to these log-cumulative odds values, allowing
+   you to model assocations between predictors and the outcome while obeying the ordered
+   nature of the predictions. 
+
+** 11.1.1. Example: Moral Intuition
+
+ #+BEGIN_SRC R :results output
+library(rethinking)
+data(Trolley)
+d <- Trolley 
+ #+END_SRC
+
+ #+RESULTS:
+ #+begin_example
+ Loading required package: rstan
+ Loading required package: ggplot2
+ Loading required package: StanHeaders
+ rstan (Version 2.18.2, GitRev: 2e1f913d3ca3)
+ For execution on a local, multicore CPU with excess RAM we recommend calling
+ options(mc.cores = parallel::detectCores()).
+ To avoid recompilation of unchanged Stan programs, we recommend calling
+ rstan_options(auto_write = TRUE)
+ Loading required package: parallel
+ rethinking (Version 1.59)
+ #+end_example
+
+** 11.1.2. Describing an ordered distribution with intercepts :/Users/melvinwevers/Dropbox/Courses/statistical_rethinking/:
+#+BEGIN_SRC R :results graphics :file 11.2.png
+simplehist(d$response, xlim=c(1,7), xlabl="response")
+#+END_SRC
+
+#+RESULTS:
+[[file:11.2.png]]
+
+
+#+BEGIN_SRC R :results graphics :file 11.3.png
+# discrete proportion of each response scale
+pr_k <- table(d$response) / nrow(d)
+
+# cumsum converts to cumulative proportions
+cum_pr_k <- cumsum(pr_k)
+
+                                        # plot
+plot(1: 7, cum_pr_k, type="b", xlab="response",
+     ylab="cumulative proportion", ylim=c(0,1))
+#+END_SRC
+
+#+RESULTS:
+[[file:11.3.png]]
+
+#+BEGIN_SRC R :results output
+logit <- function(x) log(x/(1-x))
+(lco <- logit(cum_pr_k))
+#+END_SRC
+
+#+RESULTS:
+: 
+:          1          2          3          4          5          6          7 
+: -1.9160912 -1.2666056 -0.7186340  0.2477857  0.8898637  1.7693809        Inf
+
+#+BEGIN_SRC R :results output
+m11.1 <- map(
+    alist(
+        response ~ dordlogit(phi, c(a1,a2,a3,a4,a5,a6)),
+        phi <- 0,
+        c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+    ),
+    data=d,
+    start=list(a1=-2, a2=-1, a3=0, a4=1, a5=2, a6=2.5))
+
+precis(m11.1)
+# to get cum. probabilities
+logistic(coef(m11.1))
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+    Mean StdDev  5.5% 94.5%
+a1 -1.92   0.03 -1.96 -1.87
+a2 -1.27   0.02 -1.31 -1.23
+a3 -0.72   0.02 -0.75 -0.68
+a4  0.25   0.02  0.22  0.28
+a5  0.89   0.02  0.85  0.93
+a6  1.77   0.03  1.72  1.81
+
+       a1        a2        a3        a4        a5        a6 
+0.1283005 0.2198398 0.3276948 0.5616311 0.7088609 0.8543786
+#+end_example
+
+#+BEGIN_SRC R :results output
+
+#+END_SRC
+
+#+BEGIN_SRC R :results output
+
+m11.1stan <- map2stan(
+    alist(
+        response ~ dordlogit(phi, cutpoints),
+        phi <- 0,
+        cutpoints ~ dnorm(0,10)
+    ),
+    data=list(response=d$response),
+    start=list(cutpoints=c(-2,-1,0,1,2,2.5)),
+    chains=2, cores=2)
+
+precis(m11.1stan, depth=2)
+
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+
+SAMPLING FOR MODEL 'response ~ dordlogit(phi, cutpoints)' NOW (CHAIN 1).
+
+SAMPLING FOR MODEL 'response ~ dordlogit(phi, cutpoints)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 0.003704 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 37.04 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 1: 
+Chain 1: Gradient evaluation took 0.003741 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 37.41 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 2: Iteration:    1 / 2000 [  0%]  (Warmup)
+Chain 1: Iteration:    1 / 2000 [  0%]  (Warmup)
+Chain 2: Iteration:  200 / 2000 [ 10%]  (Warmup)
+Chain 1: Iteration:  200 / 2000 [ 10%]  (Warmup)
+Chain 1: Iteration:  400 / 2000 [ 20%]  (Warmup)
+Chain 2: Iteration:  400 / 2000 [ 20%]  (Warmup)
+Chain 2: Iteration:  600 / 2000 [ 30%]  (Warmup)
+Chain 1: Iteration:  600 / 2000 [ 30%]  (Warmup)
+Chain 1: Iteration:  800 / 2000 [ 40%]  (Warmup)
+Chain 2: Iteration:  800 / 2000 [ 40%]  (Warmup)
+Chain 1: Iteration: 1000 / 2000 [ 50%]  (Warmup)
+Chain 1: Iteration: 1001 / 2000 [ 50%]  (Sampling)
+Chain 2: Iteration: 1000 / 2000 [ 50%]  (Warmup)
+Chain 2: Iteration: 1001 / 2000 [ 50%]  (Sampling)
+Chain 2: Iteration: 1200 / 2000 [ 60%]  (Sampling)
+Chain 1: Iteration: 1200 / 2000 [ 60%]  (Sampling)
+Chain 2: Iteration: 1400 / 2000 [ 70%]  (Sampling)
+Chain 1: Iteration: 1400 / 2000 [ 70%]  (Sampling)
+Chain 1: Iteration: 1600 / 2000 [ 80%]  (Sampling)
+Chain 2: Iteration: 1600 / 2000 [ 80%]  (Sampling)
+Chain 2: Iteration: 1800 / 2000 [ 90%]  (Sampling)
+Chain 1: Iteration: 1800 / 2000 [ 90%]  (Sampling)
+Chain 2: Iteration: 2000 / 2000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 25.2122 seconds (Warm-up)
+Chain 2:                29.8109 seconds (Sampling)
+Chain 2:                55.0231 seconds (Total)
+Chain 2: 
+Chain 1: Iteration: 2000 / 2000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 25.0762 seconds (Warm-up)
+Chain 1:                30.6185 seconds (Sampling)
+Chain 1:                55.6947 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'response ~ dordlogit(phi, cutpoints)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.003053 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 30.53 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2e-06 seconds (Warm-up)
+Chain 1:                0.005348 seconds (Sampling)
+Chain 1:                0.00535 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 200 / 2000 ][ 400 / 2000 ][ 600 / 2000 ][ 800 / 2000 ][ 1000 / 2000 ][ 1200 / 2000 ][ 1400 / 2000 ][ 1600 / 2000 ][ 1800 / 2000 ][ 2000 / 2000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+              Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+cutpoints[1] -1.92   0.03      -1.97      -1.87  1306    1
+cutpoints[2] -1.27   0.02      -1.31      -1.23  1597    1
+cutpoints[3] -0.72   0.02      -0.75      -0.69  2253    1
+cutpoints[4]  0.25   0.02       0.22       0.28  2300    1
+cutpoints[5]  0.89   0.02       0.85       0.92  2247    1
+cutpoints[6]  1.77   0.03       1.73       1.82  2243    1
+#+end_example
+
+** 11.1.3. Adding predictor variables
+
+To include predictor variables, we define the log-cumulative-odds of each response $k$ as
+a sum of its intercept \apha_{k} and a typical linear model. 
+
+We substract \phi, the linear model \betax_{i} from each intercept. This way, a positive
+\beta value indicates taht an icnrease in the predictor variable $x$ results in an
+increase in the average response. 
+
+#+BEGIN_SRC R :results output
+m11.2 <- map(
+    alist(
+        response ~ dordlogit(phi, c(a1,a2,a3,a4,a5,a6)),
+        phi <- bA*action + bI *intention + bC*contact,
+        c(bA,bI,bC) ~ dnorm(0,10),
+        c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+    ),
+    data=d,
+    start=list(a1=-1.9, a2=-1.2, a3=-0.7, a4=0.2, a5=0.9, a6=1.8))
+
+#+END_SRC 
+
+#+RESULTS:
+c
+#+BEGIN_SRC R :results output
+m11.3 <- map(
+    alist(
+        response ~ dordlogit(phi, c(a1,a2,a3,a4,a5,a6)),
+        phi <- bA*action + bI *intention + bC*contact +
+            bAI*action*intention + bCI*contact*intention,
+        c(bA,bI,bC,bAI,bCI) ~ dnorm(0,10),
+        c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+    ),
+    data=d,
+    start=list(a1=-1.9, a2=-1.2, a3=-0.7, a4=0.2, a5=0.9, a6=1.8))
+
+#+END_SRC 
+
+#+RESULTS:
+#+BEGIN_SRC R : results output
+coeftab(m11.1, m11.2, m11.3)
+
+#+END_SRC
+
+#+RESULTS:
+
+Parameters are negative. Each factor/interaction reduces the average response > changes in
+cumulative log-odds. 
+
+#+BEGIN_SRC R :results ouput
+compare(m11.1, m11.2, m11.3, refresh=0.1)
+
+#+END_SRC
+
+#+RESULTS:
+
+If WAIC turned out to be less decisive. > passing a list of models to an ensemble. ]]
+
+How to plot predictions?
+
+Horizontal axis for a predictor variable and the vertical axis for cumulative
+probability. Then plot a curve for each response value, as it changes accross values of
+the predictor variable. 
+
+#+BEGIN_SRC R :results graphics :file 11.19.png
+
+post <- extract.samples(m11.3)
+
+plot(1, 1, type="n", xlab="intention", ylab="probability",
+     xlim=c(0,1), ylim=c(0,1), xaxp=c(0,1,1), yaxp=c(0,1,2))
+
+kA <- 0 #value for action
+kC <- 1 #value for contact
+kI <- 0:1 #values of intention to calculate over
+
+for (s in 1:100) {
+    p <- post[s,]
+    ak <- as.numeric(p[1:6])
+    phi <- p$bA*kA + p$bI*kI + p$bC*kC +
+        p$bAI*kA*kI + p$bCI*kC*kI
+    pk <- pordlogit(1:6, a=ak, phi=phi)
+    for (i in 1:6)
+        lines(kI, pk[,i], col=col.alpha(rangi2,0.1))
+}
+mtext(concat("action=", kA,", contact=", kC))
+#+END_SRC
+
+#+RESULTS:
+[[file:11.19.png]]
+
+* 11.2 Zero-inflated outcomes
+Whenever there are different causes for the same observation, then a *mixture model* may
+be useful. 
+Count variables are especially prone to needing a mixture treatment. Counts of zero can
+often arise more than one way. 
+
+** 11.2.1. Example: Zero-inflated Poisson
+The probability of observing a zero is the probability that the monks didn't drink OR (+)
+the probability that the monks worked AND (x) failed to finish anything
+
+#+BEGIN_SRC R :results graphics :file p11.21.png
+                                        # define parameters
+prob_drink <- 0.2 #20% of days
+rate_work <- 1 # average 1 ms per days
+
+                                        #sample one year of production
+N <- 365
+
+#simulate days monks drink
+drink <- rbinom(N, 1, prob_drink)
+
+                                        # simulate ms completed
+y <- (1-drink)*rpois(N, rate_work)
+
+simplehist(y, xlab="ms completed", lwd=4)
+zeros_drink <- sum(drink)
+zeros_work <- sum(y==0 & drink==0)
+zeros_total <- sum(y==0)
+lines(c(0,0), c(zeros_work, zeros_total), lwd=4, col=rangi2)
+#+END_SRC
+
+#+RESULTS:
+[[file:p11.21.png]]
+
+#+BEGIN_SRC R :results output
+m11.4 <- map(
+    alist(
+        y ~ dzipois(p, lambda),
+        logit(p) <- ap,
+        log(lambda) <- al,
+        ap ~ dnorm(0,1),
+        al ~ dnorm(0,10)
+    ),
+    data=list(y=y))
+precis(m11.4)
+
+#+END_SRC
+
+#+RESULTS:
+: 
+:     Mean StdDev  5.5% 94.5%
+: ap -1.13   0.28 -1.57 -0.69
+: al  0.05   0.08 -0.08  0.19
+
+#+BEGIN_SRC R :results output
+logistic(-1.13) # probability drink
+exp(0.05) # rate finish ms
+#+END_SRC
+
+#+RESULTS:
+: [1] 0.2441611
+: 
+: [1] 1.051271
+
+* 11.3 Over-dispersed outcomes
+One sympton that something important has been omitted from a count model is
+*over-dispersion*
+
+the variance of a variable is sometimes called its /dispersion/. The expected value of a
+binomial is $np$ and its variance is $np(1-p)$. When the observed variance exceed this
+amount--after conditioning on all the predictor variables--this implies that some omitted
+variable is producing additional dispersion in the observed counts. 
+
+How to deal with this.
+
+1. *Continuous mixture* model in which linear model is attached not to the observations
+   themselves but rather to a distribution of observations. Two types of this model:
+   beta-binomial and gamma-Poisson (negative binomial). 
+2. *Multilevel models* to estimate both the residuals of each observation and the
+   distribution of those residuals. In practice, it is often easier to use these
+   models. (Chapter 12)
+
+** 11.3.1. Beta-binomial
+*beta-binomial* model assumes that each binomial count observation has its odwn
+ probability of a success. The model estimates the /distribution/ of probabilities of
+ success across cases, instead of a single probability of success. Predictor variables
+ change the shape of this distribution, instead of directly determining the probability of
+ each success. 
+
+Beta distribution is a probability distribution for probabilities. This has two
+parameters, an average probability $pbar$ and a shape parameter theta. With \theta is 2 every
+probability between 0 and 1 is equally likely. Above 2 prbs grow more concentrated. 
+
+#+BEGIN_SRC R :results graphics :file 11.25.png
+pbar <- 0.5
+theta <- 0.2
+curve(dbeta2(x,pbar,theta), from=0, to=1,
+      xlab='probability', ylab='density')
+#+END_SRC
+
+#+RESULTS:
+[[file:11.25.png]]
+
+#+BEGIN_SRC R :results output
+library(rethinking)
+data(UCBadmit)
+d <- UCBadmit
+
+m11.5 <- map2stan(
+    alist(
+        admit ~ dbetabinom(applications,pbar, theta),
+        logit(pbar) <- a,
+        a ~ dnorm(0,2),
+        theta ~ dexp(1)
+    ), data=d,
+    constraints = list(theta="lower=0"),
+    start=list(theta=3),
+    iter=4000, warmup=1000, chains=2, cores=2)
+
+precis(m11.5)
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+Warning: Variable 'applicant.gender' contains dots '.'.
+Will attempt to remove dots internally.
+
+
+SAMPLINGSAMPLING FOR MODEL ' FOR MODEL 'admit ~ dbetabinom(applications, pbar, theta)admit ~ dbetabinom(applications, pbar, theta)' NOW (CHAIN ' NOW (CHAIN 12).
+).
+Chain 2: 
+Chain 1: 
+Chain 2: Gradient evaluation took 6.1e-05 seconds
+Chain 2: Chain 1000 transitions using 10 leapfrog steps per transition would take 0.61 seconds.1
+: Chain Gradient evaluation took 5.5e-05 seconds2
+: Chain Adjust your expectations accordingly!1
+: Chain 1000 transitions using 10 leapfrog steps per transition would take 0.55 seconds.2
+: Chain 
+1Chain : 2Adjust your expectations accordingly!: 
+
+Chain 1: 
+Chain 1: 
+Chain 1: Chain Iteration:    1 / 4000 [  0%]  (Warmup)2
+: Iteration:    1 / 4000 [  0%]  (Warmup)
+Chain 2: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 1: Iteration:  400 / 4000 [ 10%]  (Warmup)
+Chain 2: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 1: Iteration:  800 / 4000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 4000 [ 25%]  (Sampling)
+Chain 1: Iteration: 1001 / 4000 [ 25%]  (Sampling)
+Chain 2: Iteration: 1400 / 4000 [ 35%]  (Sampling)
+Chain 1: Iteration: 1400 / 4000 [ 35%]  (Sampling)
+Chain 2: Iteration: 1800 / 4000 [ 45%]  (Sampling)
+Chain 1: Iteration: 1800 / 4000 [ 45%]  (Sampling)
+Chain 2: Iteration: 2200 / 4000 [ 55%]  (Sampling)
+Chain 1: Iteration: 2200 / 4000 [ 55%]  (Sampling)
+Chain 2: Iteration: 2600 / 4000 [ 65%]  (Sampling)
+Chain 1: Iteration: 2600 / 4000 [ 65%]  (Sampling)
+Chain 2: Iteration: 3000 / 4000 [ 75%]  (Sampling)
+Chain 1: Iteration: 3000 / 4000 [ 75%]  (Sampling)
+Chain 2: Iteration: 3400 / 4000 [ 85%]  (Sampling)
+Chain 1: Iteration: 3400 / 4000 [ 85%]  (Sampling)
+Chain 2: Iteration: 3800 / 4000 [ 95%]  (Sampling)
+Chain 1: Iteration: 3800 / 4000 [ 95%]  (Sampling)
+Chain 2: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.102123 seconds (Warm-up)
+Chain 2:                0.355576 seconds (Sampling)
+Chain 2:                0.457699 seconds (Total)
+Chain 2: 
+Chain 1: Iteration: 4000 / 4000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.10543 seconds (Warm-up)
+Chain 1:                0.360229 seconds (Sampling)
+Chain 1:                0.465659 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'admit ~ dbetabinom(applications, pbar, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 5.1e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.51 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2e-06 seconds (Warm-up)
+Chain 1:                0.000144 seconds (Sampling)
+Chain 1:                0.000146 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 600 / 6000 ][ 1200 / 6000 ][ 1800 / 6000 ][ 2400 / 6000 ][ 3000 / 6000 ][ 3600 / 6000 ][ 4200 / 6000 ][ 4800 / 6000 ][ 5400 / 6000 ][ 6000 / 6000 ]
+
+       Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+theta  2.76   0.95       1.32       4.18  3254    1
+a     -0.38   0.31      -0.87       0.10  4566    1
+#+end_example
+
+#+BEGIN_SRC R :results output
+post <- extract.samples(m11.5)
+quantile(logistic(post$a), c(0.025, 0.5, 0.975))
+
+#+END_SRC
+
+#+RESULTS:
+: 
+:      2.5%       50%     97.5% 
+: 0.2721879 0.4075597 0.5573822
+
+#+BEGIN_SRC R :results graphics :file 11.29.png
+post <- extract.samples(m11.5)
+#draw posterior mean beta distribution
+curve(dbeta2(x,mean(logistic(post$a)),mean(post$theta)), from=0, to=1,
+      ylab="Density", xlab="probability admit", ylim=c(0,3), lwd=2)
+
+                                        #draw 100 beta distributions sampled from posterior
+for (i in 1:100){
+    p <- logistic(post$a[i])
+    theta <- post$theta[i]
+    curve(dbeta2(x,p,theta), add=TRUE, col=col.alpha("black", 0.2))
+}
+#+END_SRC
+
+#+RESULTS:
+[[file:11.29.png]]
+
+#+BEGIN_SRC R :results graphics :file 11.30.png
+postcheck(m11.5)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:11.30.png]]
+
+** 11.3.2 Negative-binomial or gamma-Poisson
+A *negative-binomial* model, more usefully called a *Gamma-Poisson* model, assumes that
+each Poisson count observation has its own rate. 
+
+#+BEGIN_SRC R :results graphics :file 11.31.png
+mu <- 7
+theta <- 5
+curve(dgamma2(x,mu,theta), from=0, to=10)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:11.31.png]]
+ 
+
+** 11.3.3. Over-dispersion, entropy, and information criteria
+Both the beta-binomial and gamma-Poisson models are maximum entropy for the same
+constraints as the regular binomial and Poisson. They just try to observe for
+unobserved heterogeneity in probabilites and rates.
+
+* 11.5 Practice
+
+** 11E1 
+An ordered categorical variable represents a certain order, for example scores on a likert
+scale.
+5 is higher than 4, than 3, etc. Unordered could be categories for image recognition such
+as 'man', 'car', and 'tree'
+
+** 11E2
+Cumulative link function. It is basically a multinomial prediction problem with a
+constraint that categories are ordered. The cumulative probability of a value is the
+probability of that value or /any smaller value/. 
+
+** 11E3
+Count of zero can arise in more than one way. Nothing can happen because the rate of
+events is low or rather because the process that generates events failed to get started. 
+A model that ignores zero-inflation will underestimate the value of lamda (poisson) or p
+(binomial)
+
+** 11E4
+Heterogeneity in counts can hide interacting effects. Not always can we get access to
+additional variables that explain this over-dispersion. Beta-Binomial and Gamma-Poisson
+draw the expected value of eah observation from a distribution that changes shape as a
+function of a linear model. 
+
+** 11M1
+ratings = 1 to 4
+log cumulative odds of each ratings
+#+BEGIN_SRC R :results output
+n <- c(12, 36, 7, 41)
+cum_pr_k <- cumsum(n) / sum(n)
+logit <- function(x) log(x/(1-x))
+(lco <- logit(cum_pr_k))
+
+#+END_SRC
+
+#+RESULTS:
+: 
+: [1] -1.9459101  0.0000000  0.2937611        Inf
+
+** 11M2
+#+BEGIN_SRC R :results graphics :file 11m2.png
+prev <- 0
+prev2 <- 0
+
+plot(1:4, cum_pr_k)
+lines(1:4, cum_pr_k)
+for (i in 1:4){
+    lines(c(i,i),c(0,cum_pr_k[i]), lwd=4)
+    lines(c(i+0.05,i+0.05), c(prev, cum_pr_k[i]), lwd=4, col='blue')
+prev2 <- prev
+prev <- cum_pr_k[i]
+}
+#+END_SRC
+
+#+RESULTS:
+[[file:11m2.png]]
+
+** 11M3
+Modify the derivation of the zero-inflated Poisson distribution (ZIPoisson) from the
+chapter to construct a zero-inflated binomial distribution?
+
+(1-p) * Pr(y | n, p) 
+
+klopt dit??
+
+** 11H1
+#+BEGIN_SRC R :results output
+library(rethinking)
+data(Hurricanes)
+d <- Hurricanes
+
+
+m11h1a <- map2stan(
+    alist(
+        deaths ~ dpois(lambda),
+        log(lambda) <- alpha + beta_fem*femininity,
+        alpha ~ dnorm(0,10),
+        beta_fem ~ dnorm(0,10)
+    ),
+    data=d, chains=2, warmup=1000, iter=5000)
+precis(m11h1a)
+
+m11h1b <- map2stan(
+    alist(
+        deaths ~ dpois(lambda),
+        log(lambda) <- alpha, 
+        alpha ~ dnorm(0,10)
+        
+    ),
+    data=d, chains=2, warmup=1000, iter=5000)
+precis(m11h1b)
+
+compare(m11h1a, m11h1b, n=1e4)
+
+coeftab(m11h1a, m11h1b)
+
+#postcheck(m11h1a, window=nrow(d))
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+
+SAMPLING FOR MODEL 'deaths ~ dpois(lambda)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 2.9e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.29 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.448082 seconds (Warm-up)
+Chain 1:                0.262808 seconds (Sampling)
+Chain 1:                0.71089 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'deaths ~ dpois(lambda)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 8e-06 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.08 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.065581 seconds (Warm-up)
+Chain 2:                0.256796 seconds (Sampling)
+Chain 2:                0.322377 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'deaths ~ dpois(lambda)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 1.1e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.11 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 1e-06 seconds (Warm-up)
+Chain 1:                4.5e-05 seconds (Sampling)
+Chain 1:                4.6e-05 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 800 / 8000 ][ 1600 / 8000 ][ 2400 / 8000 ][ 3200 / 8000 ][ 4000 / 8000 ][ 4800 / 8000 ][ 5600 / 8000 ][ 6400 / 8000 ][ 7200 / 8000 ][ 8000 / 8000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+         Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+alpha    2.50   0.06       2.40       2.60  1357    1
+beta_fem 0.07   0.01       0.06       0.09  1353    1
+
+
+SAMPLING FOR MODEL 'deaths ~ dpois(lambda)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 1.9e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.19 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.031588 seconds (Warm-up)
+Chain 1:                0.122419 seconds (Sampling)
+Chain 1:                0.154007 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'deaths ~ dpois(lambda)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 8e-06 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.08 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.028713 seconds (Warm-up)
+Chain 2:                0.1113 seconds (Sampling)
+Chain 2:                0.140013 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'deaths ~ dpois(lambda)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 7e-06 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.07 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2e-06 seconds (Warm-up)
+Chain 1:                4.2e-05 seconds (Sampling)
+Chain 1:                4.4e-05 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 800 / 8000 ][ 1600 / 8000 ][ 2400 / 8000 ][ 3200 / 8000 ][ 4000 / 8000 ][ 4800 / 8000 ][ 5600 / 8000 ][ 6400 / 8000 ][ 7200 / 8000 ][ 8000 / 8000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+      Mean StdDev lower 0.89 upper 0.89 n_eff Rhat
+alpha 3.03   0.02       2.99       3.07  3303    1
+
+         WAIC pWAIC dWAIC weight      SE    dSE
+m11h1a 4416.6 130.3   0.0      1 1002.44     NA
+m11h1b 4444.2  79.3  27.6      0 1072.79 137.29
+
+         m11h1a  m11h1b 
+alpha       2.50    3.03
+beta_fem    0.07      NA
+nobs          92      92
+#+end_example
+
+#+BEGIN_SRC R :results graphics :file plt.png
+femininity.seq <- seq(from=1, to=11, length.out=30)
+d.pred <- data.frame(
+    femininity = femininity.seq)
+
+lambda.pred <- link(m11h1a, data=d.pred)
+lambda.mean <- apply(lambda.pred, 2, mean)
+lambda.PI <- apply(lambda.pred, 2, PI)
+
+sim.pred <- sim(m11h1a, data=d.pred)
+#sim.pred <- apply(sim.pred, 2, mean)
+sim.pred.PI <- apply(sim.pred, 2, PI)
+
+plot(d$femininity, d$deaths, pch=16, col=rangi2, xlab="femininity", ylab="deaths")
+lines(femininity.seq, lambda.mean, col=rangi2)
+shade(lambda.PI, femininity.seq, col=col.alpha(rangi2,0.2))
+lines(femininity.seq, sim.pred.PI[1,], lty=2)
+lines(femininity.seq, sim.pred.PI[2,], lty=2)
+#+END_SRC
+
+#+RESULTS:
+[[file:plt.png]]
+
+Death go up on low and high femininity, but are not linearly related to it. Another factor
+might produce the outliers. 
+
+** 11H2
+Counts are almost always over-dispersed relative to Poisson. Fit a gamma-Poisson
+(negative-binomial) model to predict deaths using femininity. Explain why the association
+diminished in strength?
+
+#+BEGIN_SRC R :results graphics :file plt2.png
+m11h2 <- map(
+    alist(
+        deaths ~ dgampois( mu , theta),
+        log(mu) <- a + b*femininity,
+        a ~ dnorm(0,100),
+        b ~ dnorm(0,1),
+        theta ~ dexp(1)
+         ),
+         data=d )
+
+precis(m11h2)
+
+postcheck(m11h2, window=100)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:plt2.png]]
+
+#+BEGIN_SRC R :results graphics :file plt3.png
+femininity.seq <- seq(from=1, to=11, length.out=30)
+d.pred <- data.frame(
+    femininity = femininity.seq)
+
+lambda.pred <- link(m11h2, data=d.pred)
+lambda.mean <- apply(lambda.pred, 2, mean)
+lambda.PI <- apply(lambda.pred, 2, PI)
+
+sim.pred <- sim(m11h2, data=d.pred)
+#sim.pred <- apply(sim.pred, 2, mean)
+sim.pred.PI <- apply(sim.pred, 2, PI)
+
+plot(d$femininity, d$deaths, pch=16, col=rangi2, xlab="femininity", ylab="deaths")
+
+lines(femininity.seq, lambda.mean, col=rangi2)
+shade(lambda.PI, femininity.seq, col=col.alpha(rangi2,0.2))
+lines(femininity.seq, sim.pred.PI[1,], lty=2)
+lines(femininity.seq, sim.pred.PI[2,], lty=2)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:plt3.png]]
+
+Wide interval for simulated predictions. Also almost flaw lambda prediction. 
+
+** 11H3
+min_pressure : Minimum pressure, a measure of storm strength; low is stronger
+damage_norm : Normalized estimate of damage in dollars
+
+#+BEGIN_SRC R :results output
+
+d$damage_s <- (d$damage_norm - mean(d$damage_norm)) / sd(d$damage_norm)
+d$pressure_s <- (d$min_pressure - mean(d$min_pressure)) / sd(d$min_pressure)
+d$femininity_s <- (d$femininity - mean(d$femininity)) / sd(d$femininity)
+
+
+m1 <- map2stan(
+    alist(
+        deaths ~ dgampois(lambda, theta),
+        log(lambda) <- a + bF * femininity_s +
+            bP * pressure_s +
+            bD * damage_s,
+        a ~ dnorm(0,100),
+        c(bF, bP, bD) ~ dnorm(0,1),
+        theta ~ dexp(1)
+    ), data=d, chains=2, warmup=1000, iter=5000
+)
+
+
+m2 <- map2stan(
+    alist(
+        deaths ~ dgampois(lambda, theta),
+        log(lambda) <- a + bF * femininity_s +
+            bP * pressure_s +
+            bD * damage_s +
+            bFD * femininity_s * damage_s,
+        a ~ dnorm(0,100),
+        c(bF, bP, bD, bFD) ~ dnorm(0,1),
+        theta ~ dexp(1)
+    ), data=d, chains=2, warmup=1000, iter=5000
+)
+
+
+m3 <- map2stan(
+    alist(
+        deaths ~ dgampois(lambda, theta),
+        log(lambda) <- a + bF * femininity_s +
+            bP * pressure_s +
+            bD * damage_s +
+            bFP * femininity_s * pressure_s,
+        a ~ dnorm(0,100),
+        c(bF, bP, bD, bFP) ~ dnorm(0,1),
+        theta ~ dexp(1)
+    ), data=d, chains=2, warmup=1000, iter=5000
+)
+
+
+m4 <- map2stan(
+    alist(
+        deaths ~ dgampois(lambda, theta),
+        log(lambda) <- a + bF * femininity_s +
+            bP * pressure_s +
+            bD * damage_s +
+            bFD * femininity_s * damage_s +
+            bFP * femininity_s * pressure_s,
+        a ~ dnorm(0,100),
+        c(bF, bP, bD, bFD, bFP) ~ dnorm(0,1),
+        theta ~ dexp(1)
+    ), data=d, chains=2, warmup=1000, iter=5000
+)
+
+m5 <- map2stan(
+    alist(
+        deaths ~ dgampois(lambda, theta),
+        log(lambda) ~ a +  bD*damage_s +
+            bP*pressure_s,
+        a ~ dnorm(0, 100),
+        c(bD,bP) ~ dnorm(0, 1),
+        theta ~ dexp(1)
+    ), data=d, chains=2, warmup=1000, iter=5000
+)
+
+m6 <- map2stan(
+    alist(
+        deaths ~ dgampois(lambda, theta),
+        log(lambda) ~ a + bF*femininity_s +
+            bD*damage_s,
+        a ~ dnorm(0, 100),
+        c(bF, bD) ~ dnorm(0, 1),
+        theta ~ dexp(1)
+    ), data=d, chains=2, warmup=1000, iter=5000
+)
+
+m7 <- map2stan(
+    alist(
+        deaths ~ dgampois(lambda, theta),
+        log(lambda) ~ a + bFD*femininity_s*damage_s,
+        a ~ dnorm(0, 100),
+        c(bFD) ~ dnorm(0, 1),
+        theta ~ dexp(1)
+    ), data=d, chains=2, warmup=1000, iter=5000
+)
+
+
+compare(m1, m2, m3, m4, m5, m6, m7, func=DIC)
+#coeftab(m11h3.int.pressure, m11h3.int.damage, m11h3.2int)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 5.6e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.56 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.326114 seconds (Warm-up)
+Chain 1:                1.31982 seconds (Sampling)
+Chain 1:                1.64594 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 4.3e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.43 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.302218 seconds (Warm-up)
+Chain 2:                1.24353 seconds (Sampling)
+Chain 2:                1.54575 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 4.3e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.43 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2e-06 seconds (Warm-up)
+Chain 1:                0.000134 seconds (Sampling)
+Chain 1:                0.000136 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 800 / 8000 ][ 1600 / 8000 ][ 2400 / 8000 ][ 3200 / 8000 ][ 4000 / 8000 ][ 4800 / 8000 ][ 5600 / 8000 ][ 6400 / 8000 ][ 7200 / 8000 ][ 8000 / 8000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 8.7e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.87 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.393933 seconds (Warm-up)
+Chain 1:                1.49561 seconds (Sampling)
+Chain 1:                1.88954 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 6.3e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.63 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.46016 seconds (Warm-up)
+Chain 2:                1.39111 seconds (Sampling)
+Chain 2:                1.85127 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.000125 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 1.25 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 3e-06 seconds (Warm-up)
+Chain 1:                0.000143 seconds (Sampling)
+Chain 1:                0.000146 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 800 / 8000 ][ 1600 / 8000 ][ 2400 / 8000 ][ 3200 / 8000 ][ 4000 / 8000 ][ 4800 / 8000 ][ 5600 / 8000 ][ 6400 / 8000 ][ 7200 / 8000 ][ 8000 / 8000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 9.5e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.95 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.360221 seconds (Warm-up)
+Chain 1:                1.4345 seconds (Sampling)
+Chain 1:                1.79473 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 4.5e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.45 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.381063 seconds (Warm-up)
+Chain 2:                1.45322 seconds (Sampling)
+Chain 2:                1.83428 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 6.1e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.61 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2e-06 seconds (Warm-up)
+Chain 1:                0.000138 seconds (Sampling)
+Chain 1:                0.00014 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 800 / 8000 ][ 1600 / 8000 ][ 2400 / 8000 ][ 3200 / 8000 ][ 4000 / 8000 ][ 4800 / 8000 ][ 5600 / 8000 ][ 6400 / 8000 ][ 7200 / 8000 ][ 8000 / 8000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0.000114 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 1.14 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.499433 seconds (Warm-up)
+Chain 1:                2.1757 seconds (Sampling)
+Chain 1:                2.67514 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 6.5e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.65 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.546824 seconds (Warm-up)
+Chain 2:                1.92198 seconds (Sampling)
+Chain 2:                2.4688 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 5.1e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.51 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 1e-06 seconds (Warm-up)
+Chain 1:                0.000147 seconds (Sampling)
+Chain 1:                0.000148 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 800 / 8000 ][ 1600 / 8000 ][ 2400 / 8000 ][ 3200 / 8000 ][ 4000 / 8000 ][ 4800 / 8000 ][ 5600 / 8000 ][ 6400 / 8000 ][ 7200 / 8000 ][ 8000 / 8000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 6.2e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.62 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.277823 seconds (Warm-up)
+Chain 1:                1.29227 seconds (Sampling)
+Chain 1:                1.57009 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 5.2e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.52 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.297086 seconds (Warm-up)
+Chain 2:                1.13343 seconds (Sampling)
+Chain 2:                1.43051 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 6.7e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.67 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 3e-06 seconds (Warm-up)
+Chain 1:                0.00021 seconds (Sampling)
+Chain 1:                0.000213 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 800 / 8000 ][ 1600 / 8000 ][ 2400 / 8000 ][ 3200 / 8000 ][ 4000 / 8000 ][ 4800 / 8000 ][ 5600 / 8000 ][ 6400 / 8000 ][ 7200 / 8000 ][ 8000 / 8000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 5.7e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.57 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.294983 seconds (Warm-up)
+Chain 1:                1.15395 seconds (Sampling)
+Chain 1:                1.44894 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 5.4e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.54 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.349545 seconds (Warm-up)
+Chain 2:                1.31817 seconds (Sampling)
+Chain 2:                1.66771 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 4.6e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.46 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 2e-06 seconds (Warm-up)
+Chain 1:                0.000203 seconds (Sampling)
+Chain 1:                0.000205 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 800 / 8000 ][ 1600 / 8000 ][ 2400 / 8000 ][ 3200 / 8000 ][ 4000 / 8000 ][ 4800 / 8000 ][ 5600 / 8000 ][ 6400 / 8000 ][ 7200 / 8000 ][ 8000 / 8000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 5.1e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.51 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 1: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 1: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 1: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 1: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 1: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 1: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 1: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 1: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 1: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 1: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 1: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 0.257055 seconds (Warm-up)
+Chain 1:                1.07 seconds (Sampling)
+Chain 1:                1.32705 seconds (Total)
+Chain 1: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 9e-05 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.9 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+Chain 2: Iteration:    1 / 5000 [  0%]  (Warmup)
+Chain 2: Iteration:  500 / 5000 [ 10%]  (Warmup)
+Chain 2: Iteration: 1000 / 5000 [ 20%]  (Warmup)
+Chain 2: Iteration: 1001 / 5000 [ 20%]  (Sampling)
+Chain 2: Iteration: 1500 / 5000 [ 30%]  (Sampling)
+Chain 2: Iteration: 2000 / 5000 [ 40%]  (Sampling)
+Chain 2: Iteration: 2500 / 5000 [ 50%]  (Sampling)
+Chain 2: Iteration: 3000 / 5000 [ 60%]  (Sampling)
+Chain 2: Iteration: 3500 / 5000 [ 70%]  (Sampling)
+Chain 2: Iteration: 4000 / 5000 [ 80%]  (Sampling)
+Chain 2: Iteration: 4500 / 5000 [ 90%]  (Sampling)
+Chain 2: Iteration: 5000 / 5000 [100%]  (Sampling)
+Chain 2: 
+Chain 2:  Elapsed Time: 0.269082 seconds (Warm-up)
+Chain 2:                1.41543 seconds (Sampling)
+Chain 2:                1.68452 seconds (Total)
+Chain 2: 
+
+SAMPLING FOR MODEL 'deaths ~ dgampois(lambda, theta)' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 4.3e-05 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.43 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: WARNING: No variance estimation is
+Chain 1:          performed for num_warmup < 20
+Chain 1: 
+Chain 1: Iteration: 1 / 1 [100%]  (Sampling)
+Chain 1: 
+Chain 1:  Elapsed Time: 1e-06 seconds (Warm-up)
+Chain 1:                0.000126 seconds (Sampling)
+Chain 1:                0.000127 seconds (Total)
+Chain 1: 
+Computing WAIC
+Constructing posterior predictions
+[ 800 / 8000 ][ 1600 / 8000 ][ 2400 / 8000 ][ 3200 / 8000 ][ 4000 / 8000 ][ 4800 / 8000 ][ 5600 / 8000 ][ 6400 / 8000 ][ 7200 / 8000 ][ 8000 / 8000 ]
+Warning messages:
+1: There were 1 divergent transitions after warmup. Increasing adapt_delta above 0.8 may help. See
+http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup 
+2: Examine the pairs() plot to diagnose sampling problems
+
+     DIC  pD dDIC weight
+m4 660.5 6.7  0.0   0.65
+m2 663.2 5.8  2.7   0.17
+m5 664.5 3.9  3.9   0.09
+m1 665.7 4.9  5.2   0.05
+m3 666.9 5.8  6.4   0.03
+m6 668.5 3.8  8.0   0.01
+m7 709.2 3.0 48.7   0.00
+#+end_example
+
+DIC shows that model4 is the best model, followed by 2 and 5. Two interaction effects
+2 femininity and damage interaction effect. 
+
+#+BEGIN_SRC R :results graphics :file plt6.png
+damage.seq <- seq(from=-1, to=5.5, 0.1)
+
+predictions.male <- data.frame(
+    femininity_s = -1,
+    damage_s = damage.seq,
+    pressure_s = 0
+)
+
+predictions.female <- data.frame(
+    femininity_s = 1,
+    damage_s = damage.seq,
+    pressure_s = 0
+
+)
+
+predict_ <- function(model, data){
+    lambda <- link(model, data = data)
+    lambda.mean <- apply(lambda, 2, mean)
+    lambda.PI <- apply(lambda, 2, PI)
+
+    count <- sim(model, data = data)
+    count.mean <- apply(count, 2, mean)
+    count.PI <- apply(count, 2, PI)
+
+    list(
+        lambda.mean=lambda.mean,
+        lambda.PI=lambda.PI,
+        count.mean=count.mean,
+        count.PI=count.PI)
+}
+
+plot_ <- function(x, prediction, color){
+    lines(x, prediction$lambda.mean, col=color, lty=2)
+    shade(prediction$lambda.PI, x, col=col.alpha(color, 0.1))
+    #lines(prediction$count.PI[1,], x, lty=2)
+    #lines(prediction$count.PI[2,], x, lty=2)
+}
+
+
+p.male <- predict_(m4, predictions.male)
+p.female <- predict_(m4, predictions.female)
+
+
+pch <- ifelse(d$femininity_s>0, 16, 1)
+plot(d$damage_s, d$deaths, pch=pch, col=rangi2, xlab="Damage", ylab="deaths")
+plot_(predictions.male$damage_s, p.male, 'blue')
+plot_(predictions.female$damage_s, p.female, 'pink')
+
+#+END_SRC
+
+#+RESULTS:
+[[file:plt6.png]]
+
+#+BEGIN_SRC R :results graphics :file plt7.png :width 800 :height 300
+
+par(mfrow=c(1,3))
+damage.seq <- seq(-2,5,0.1)
+
+quantiles = c(0, 0.33, 0.66, 1)
+
+for (i in 1:3){
+    qq <- quantile(d$pressure_s, probs=c(quantiles[i], quantiles[i+1]))
+    dt <- d[(d$pressure_s >= qq[1]) & (d$pressure_s <= qq[2]),]
+
+    predictions.male <- data.frame(
+        femininity_s = -1,
+        damage_s = damage.seq,
+        pressure_s = mean(dt$pressure_s))
+
+    predictions.female <- data.frame(
+        femininity_s = 1,
+        damage_s = damage.seq,
+        pressure_s = mean(dt$pressure_s))
+
+    p.male <- predict_(m4, predictions.male)
+    p.female <- predict_(m4, predictions.female)
+
+    idx.male <- dt$female!=1
+    idx.female <- dt$female==1
+
+    #pch <- ifelse(d$femininity_s>0, 16, 1)
+    plot(dt$damage_s[idx.male], dt$deaths[idx.male], xlim=range(damage.seq), ylim=range(d$deaths), pch=16, col='blue',
+         main=paste("pressure_s =", mean(dt$pressure_s)), xlab="Damage", ylab="deaths")
+    points(dt$damage_s[idx.female], dt$deaths[idx.female], pch=16, col='pink')
+    plot_(predictions.male$damage_s, p.male, 'blue')
+    plot_(predictions.female$damage_s, p.female, 'pink')
+    
+
+}
+
+#+END_SRC
+
+#+RESULTS:
+[[file:plt7.png]]
+
+** 11H4
+
+#+BEGIN_SRC R :results graphics :file plt8.png
+
+d$damage_log <- log(d$damage_norm)
+d$damage_log_s <- (d$damage_log - mean(d$damage_log)) / sd(d$damage_log)
+
+
+m4_log <- map2stan(
+    alist(
+        deaths ~ dgampois(lambda, theta),
+        log(lambda) <- a + bF * femininity_s +
+            bP * pressure_s +
+            bD * damage_log_s +
+            bFD * femininity_s * damage_log_s +
+            bFP * femininity_s * pressure_s,
+        a ~ dnorm(0,100),
+        c(bF, bP, bD, bFD, bFP) ~ dnorm(0,1),
+        theta ~ dexp(1)
+    ), data=d, chains=2, warmup=1000, iter=5000
+)
+
+par(mfrow=c(1,3))
+
+Damage.seq <- seq(-3,5,0.1)
+
+quantiles = c(0, 0.33, 0.66, 1)
+
+for (i in 1:3){
+    qq <- quantile(d$pressure_s, probs=c(quantiles[i], quantiles[i+1]))
+    dt <- d[(d$pressure_s >= qq[1]) & (d$pressure_s <= qq[2]),]
+
+    predictions.male <- data.frame(
+        femininity_s = -1,
+        damage_log_s = damage.seq,
+        pressure_s = mean(dt$pressure_s))
+
+    predictions.female <- data.frame(
+        femininity_s = 1,
+        damage_log_s = damage.seq,
+        pressure_s = mean(dt$pressure_s))
+
+    p.male <- predict_(m4_log, predictions.male)
+    p.female <- predict_(m4_log, predictions.female)
+
+    idx.male <- dt$female!=1
+    idx.female <- dt$female==1
+
+    #pch <- ifelse(d$femininity_s>0, 16, 1)
+    plot(dt$damage_log_s[idx.male], dt$deaths[idx.male], xlim=range(damage.seq), ylim=range(d$deaths), pch=16, col='blue',
+         main=paste("pressure_s =", mean(dt$pressure_s)), xlab="Damage", ylab="deaths")
+    points(dt$damage_log_s[idx.female], dt$deaths[idx.female], pch=16, col='pink')
+    plot_(predictions.male$damage_log_s, p.male, 'blue')
+    plot_(predictions.female$damage_log_s, p.female, 'pink')
+    
+
+}
+
+compare(m4, m4_log, func=DIC)
+
+#+END_SRC
+
+#+RESULTS:
+[[file:plt8.png]]
+
+m4_log has better fit
+
+
+** 11H5
+Women and men have different avg. tendencies in moral reasoning. 
+Women are more concerned with care (avoiding harm), while men are more concerned with
+justice and rights. 
+Evulate using Trolley data, supposing that /contact/ provides a proxy for physical harm. 
+Are women more or less bothered by contact than are men, in these data? 
+
+Gender in category /male/ 1 for male 0 for female
+contact 1 (action)
+
+
+#+BEGIN_SRC R :results output
+library(rethinking)
+data(Trolley)
+d <- Trolley
+
+
+m11h5.1 <- map(
+    alist(
+        response ~ dordlogit(phi, c(a1,a2,a3,a4,a5,a6)),
+        phi <- bA*action + bI*intention + bC*contact + bAI*action*intention + bCI*contact*intention,
+        c(bA,bI,bC,bAI,bCI) ~ dnorm(0,10),
+        c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+    ),
+    data=d,
+    start=list(a1=-1.9,a2=-1.2,a3=-0.7,a4=0.2,a5=0.9,a6=1.8) )
+
+
+m11h5.2 <- map(
+    alist(
+        response ~ dordlogit(phi, c(a1,a2,a3,a4,a5,a6)),
+        phi <- bC*contact + bG*(1-male),
+        c(bC,bG) ~ dnorm(0,10),
+        c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+    ),
+    data=d,
+    start=list(a1=-1.9,a2=-1.2,a3=-0.7,a4=0.2,a5=0.9,a6=1.8) )
+
+m11h5.3 <- map(
+    alist(
+        response ~ dordlogit(phi, c(a1,a2,a3,a4,a5,a6)),
+        phi <- bC*contact  +
+            bG*(1-male) + bGC*(1-male)*contact,
+        c(bC,bG,bGC) ~ dnorm(0,10),
+        c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+    ),
+    data=d,
+    start=list(a1=-1.9,a2=-1.2,a3=-0.7,a4=0.2,a5=0.9,a6=1.8) )
+
+m11h5.4 <- map(
+    alist(
+        response ~ dordlogit(phi, c(a1,a2,a3,a4,a5,a6)),
+        phi <- bA*action + bI*intention + bC*contact + bAI*action*intention + bCI*contact*intention +
+            bG*(1-male),
+        c(bA,bI,bC,bAI,bCI,bG) ~ dnorm(0,10),
+        c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+    ),
+    data=d,
+    start=list(a1=-1.9,a2=-1.2,a3=-0.7,a4=0.2,a5=0.9,a6=1.8) )
+
+m11h5.5 <- map(
+    alist(
+        response ~ dordlogit(phi, c(a1,a2,a3,a4,a5,a6)),
+        phi <- bA*action + bI*intention + bC*contact + bAI*action*intention + bCI*contact*intention +
+            bG*(1-male) + bGC*(1-male)*contact,
+        c(bA,bI,bC,bAI,bCI,bG,bGC) ~ dnorm(0,10),
+        c(a1,a2,a3,a4,a5,a6) ~ dnorm(0,10)
+    ),
+    data=d,
+    start=list(a1=-1.9,a2=-1.2,a3=-0.7,a4=0.2,a5=0.9,a6=1.8) )
+
+compare(m11h5.1, m11h5.2, m11h5.3, m11h5.4, m11h5.5)
+coeftab(m11h5.1, m11h5.2, m11h5.3, m11h5.4, m11h5.5)
+
+
+
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+Error in map(alist(response ~ dordlogit(phi, c(a1, a2, a3, a4, a5, a6)),  : 
+  initial value in 'vmmin' is not finite
+The start values for the parameters were invalid. This could be caused by missing values (NA) in the data or by start values outside the parameter constraints. If there are no NA values in the data, try using explicit start values.
+
+           WAIC pWAIC dWAIC weight    SE   dSE
+m11h5.5 36670.4  13.1   0.0   0.85 87.36    NA
+m11h5.4 36673.9  12.1   3.5   0.15 86.92  4.65
+m11h5.1 36929.3  11.1 258.9   0.00 81.23 31.68
+m11h5.3 37446.1   9.2 775.6   0.00 70.03 56.53
+m11h5.2 37449.4   8.0 779.0   0.00 69.70 56.72
+
+     m11h5.1 m11h5.2 m11h5.3 m11h5.4 m11h5.5
+a1     -2.63   -2.33   -2.35   -2.93   -2.95
+a2     -1.94   -1.67   -1.69   -2.23   -2.25
+a3     -1.34   -1.11   -1.13   -1.63   -1.65
+a4     -0.31   -0.11   -0.13   -0.57   -0.59
+a5      0.36    0.55    0.53    0.12    0.10
+a6      1.27    1.45    1.44    1.04    1.02
+bA     -0.47      NA      NA   -0.48   -0.48
+bI     -0.28      NA      NA   -0.28   -0.28
+bC     -0.33   -0.59   -0.69   -0.33   -0.43
+bAI    -0.45      NA      NA   -0.45   -0.45
+bCI    -1.27      NA      NA   -1.30   -1.30
+bG        NA   -0.55   -0.59   -0.57   -0.62
+bGC       NA      NA    0.21      NA    0.21
+nobs    9930    9930    9930    9930    9930
+#+end_example
+
+#+BEGIN_SRC R :results graphics :file m11h5.png
+post <- extract.samples(m11h5.5)
+
+plot( 1 , 1 , type="n" , xlab="gender" , ylab="probability" ,
+    xlim=c(0,1) , ylim=c(0,1) , xaxp=c(0,1,1) , yaxp=c(0,1,2) )
+
+kI <- 0 # value of intention
+kA <- 0 # value for action 
+kC <- 1 # value for contact
+kG <- 0:1# values of gender to calculate over
+
+for (s in 1:100){
+    p <- post[s,]
+    ak <- as.numeric(p[1:6])
+    phi <- p$bA*kA + p$bI * kI + p$bC * kC +
+        p$bAI*kA*kI + p$bCI*kC*kI +
+        p$bG*kG + p$bGC*kG*kC
+    pk <- pordlogit(1:6, a=ak, phi=phi)
+    for (i in 1:6)
+        lines(kG, pk[,i], col=col.alpha(rangi2,0.1))
+}
+mtext(concat("action=",kA,", contact=", kC,", intention=", kI))
+
+#+END_SRC
+
+#+RESULTS:
+[[file:m11h5.png]]
+
+** 11H6
+records of visits to a national park.
+
+1. fish_caught : Number of fish caught during visit
+2. livebait : Whether or not group used livebait to fish
+3. camper : Whether or not group had a camper
+4. persons : Number of adults in group
+5. child : Number of children in group
+6. hours : Number of hours group spent in park
+
+Q: How many fish an average visitor takes per hour, when fishing
+Not everyone tried to fish, fish_caught numbers are zero-inflated. 
+
+Process that determines who is fishing(working) and another process that determines fish
+per hour (manuscripts per day), conditional on fishing(working).
+
+Use a proper Poisson offset/exposure > use hours variable to construct the offset. 
+
+#+BEGIN_SRC R :results output
+library(rethinking)
+data(Fish)
+d <- Fish
+
+
+m11h6 <- map(alist(
+    fish_caught ~ dzipois(p, lambda),
+    logit(p) <- ap,
+    log(lambda) <- log(hours) + al,
+    ap ~ dnorm(0,10),
+    al ~ dnorm(0,10)
+), data=d)
+
+precis(m11h6)
+postcheck(m11h6, window=300)
+logistic(-0.74)
+exp(-0.14)
+mean(d$fish_caught/d$hours)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+Loading required package: rstan
+Loading required package: ggplot2
+Need help? Try Stackoverflow: https://stackoverflow.com/tags/ggplot2.
+Loading required package: StanHeaders
+rstan (Version 2.18.2, GitRev: 2e1f913d3ca3)
+For execution on a local, multicore CPU with excess RAM we recommend calling
+options(mc.cores = parallel::detectCores()).
+To avoid recompilation of unchanged Stan programs, we recommend calling
+rstan_options(auto_write = TRUE)
+Loading required package: parallel
+rethinking (Version 1.59)
+
+    Mean StdDev  5.5% 94.5%
+ap -0.74   0.18 -1.04 -0.45
+al -0.14   0.04 -0.20 -0.09
+
+[ 100 / 1000 ][ 200 / 1000 ][ 300 / 1000 ][ 400 / 1000 ][ 500 / 1000 ][ 600 / 1000 ][ 700 / 1000 ][ 800 / 1000 ][ 900 / 1000 ][ 1000 / 1000 ][ 100 / 1000 ][ 200 / 1000 ][ 300 / 1000 ][ 400 / 1000 ][ 500 / 1000 ][ 600 / 1000 ][ 700 / 1000 ][ 800 / 1000 ][ 900 / 1000 ][ 1000 / 1000 ]
+[ 100 / 1000 ][ 200 / 1000 ][ 300 / 1000 ][ 400 / 1000 ][ 500 / 1000 ][ 600 / 1000 ][ 700 / 1000 ][ 800 / 1000 ][ 900 / 1000 ][ 1000 / 1000 ][ 100 / 1000 ][ 200 / 1000 ][ 300 / 1000 ][ 400 / 1000 ][ 500 / 1000 ][ 600 / 1000 ][ 700 / 1000 ][ 800 / 1000 ][ 900 / 1000 ][ 1000 / 1000 ]
+
+[1] 0.3230041
+
+[1] 0.8693582
+
+[1] 1.107381
+#+end_example
+
+Prob for Not fishing is 0.32 
+when fishing number of fish is 0.87 (zero-inflated number is 1.11)
+
+#+BEGIN_SRC R :results output
+
+m11h6.2 <- map(alist(
+    fish_caught ~ dzipois(p, lambda),
+    logit(p) <- ap + bc*camper + bp*persons + bch*child,
+    log(lambda) <- log(hours) + al + bl*livebait + bc*camper +
+        bp*persons + bch*child,
+    ap ~ dnorm(0, 10),
+    al ~ dnorm(0, 10),
+    c(bc, bp, bch, bl) ~ dnorm(0,10)
+), data=d)
+
+precis(m11h6.2)
+pairs(m11h6.2)
+compare(m11h6, m11h6.2)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+     Mean StdDev  5.5% 94.5%
+ap  -4.03   0.43 -4.72 -3.34
+al  -3.87   0.27 -4.31 -3.43
+bc  -0.49   0.09 -0.64 -0.34
+bp   0.78   0.05  0.71  0.85
+bch  0.61   0.09  0.46  0.75
+bl   1.64   0.24  1.26  2.03
+
+          WAIC pWAIC dWAIC weight     SE    dSE
+m11h6.2 2169.3 112.4   0.0      1 389.92     NA
+m11h6   2560.2  40.3 390.9      0 466.63 231.24
+#+end_example
+
+plot predictions
+
+#+BEGIN_SRC R :results graphics :file m11h6.png
+d.predict <- data.frame(
+  hours=1,
+  livebait=c(0,1,0,1),
+  camper=c(0,0,1,1),
+  persons=c(1,1,1,1),
+  child=c(1,1,1,1d)
+)
+
+lambda.sample <- link(m11h6.2, data = d.predict)
+lambda.avg <- apply(lambda.sample$lambda, 2, mean )
+lambda.pi <- apply(lambda.sample$lambda, 2, PI )
+
+p.avg <- apply(lambda.sample$p, 2, mean )
+p.pi <- apply(lambda.sample$p, 2, PI )
+
+count.sample <- sim(m11h6.2, data = d.predict)
+count.avg <- apply(count.sample, 2, mean )
+count.pi <- apply(count.sample, 2, PI )
+
+d.predict$lambda <- lambda.avg
+d.predict$p <- p.avg
+d.predict$cnt <- count.avg
+
+#+END_SRC
+
+#+RESULTS:
+[[file:m11h6.png]]
+
+ 
